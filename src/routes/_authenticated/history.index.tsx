@@ -5,7 +5,7 @@ import { listOrders } from "@/lib/pos.functions";
 import { formatTHB } from "@/lib/cart-store";
 import { ChevronRight, Banknote, Smartphone } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/history")({
+export const Route = createFileRoute("/_authenticated/history/")({
   component: HistoryPage,
 });
 

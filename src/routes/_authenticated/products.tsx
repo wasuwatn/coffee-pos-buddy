@@ -130,7 +130,7 @@ function ProductsPage() {
         edit={prodModal.edit}
         categories={catalog.data?.categories ?? []}
         onClose={() => setProdModal({ open: false })}
-        onSave={async (data) => {
+        onSave={async (data: any) => {
           try {
             await upProd({ data });
             toast.success("บันทึกแล้ว");
@@ -146,7 +146,7 @@ function ProductsPage() {
         open={catModal.open}
         edit={catModal.edit}
         onClose={() => setCatModal({ open: false })}
-        onSave={async (data) => {
+        onSave={async (data: any) => {
           try {
             await upCat({ data });
             toast.success("บันทึกแล้ว");
