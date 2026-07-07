@@ -1,10 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Coffee } from "lucide-react";
+import { Coffee, Delete } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
@@ -17,12 +14,13 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+const PIN_CODE = "1111";
+const DEMO_EMAIL = "demo@kafepos.local";
+const DEMO_PASS = "demo-password-1111";
+
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [shopName, setShopName] = useState("");
+  const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -31,27 +29,54 @@ function AuthPage() {
     });
   }, [navigate]);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (pin.length === 4) {
+      if (pin === PIN_CODE) {
+        handleLogin();
+      } else {
+        toast.error("รหัส PIN ไม่ถูกต้อง");
+        setPin("");
+      }
+    }
+  }, [pin]);
+
+  const handleLogin = async () => {
     setLoading(true);
     try {
-      if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { shop_name: shopName || "ร้านกาแฟของฉัน" } },
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: DEMO_EMAIL,
+        password: DEMO_PASS,
+      });
+
+      if (signInError) {
+        // If sign in fails (likely doesn't exist yet), we sign them up automatically
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: DEMO_EMAIL,
+          password: DEMO_PASS,
+          options: { data: { shop_name: "ร้าน Demo", full_name: "พนักงาน 1111" } },
         });
-        if (error) throw error;
-        toast.success("สมัครสำเร็จ กำลังเข้าสู่ระบบ...");
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        if (signUpError) throw signUpError;
+        toast.success("สร้างบัญชี Demo สำหรับรหัส 1111 สำเร็จ");
       }
+      
       navigate({ to: "/" });
     } catch (err) {
       toast.error((err as Error).message);
+      setPin("");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const pressNumber = (num: number) => {
+    if (pin.length < 4 && !loading) {
+      setPin((prev) => prev + num);
+    }
+  };
+
+  const pressDelete = () => {
+    if (pin.length > 0 && !loading) {
+      setPin((prev) => prev.slice(0, -1));
     }
   };
 
@@ -64,74 +89,51 @@ function AuthPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold">Kafe POS</h1>
-            <p className="mt-1 text-sm text-muted-foreground">ระบบขายหน้าร้านกาแฟ</p>
+            <p className="mt-1 text-sm text-muted-foreground">เข้าสู่ระบบด้วยรหัส PIN (1111)</p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
-            <button
-              type="button"
-              onClick={() => setMode("signin")}
-              className={`rounded-lg py-2 text-sm font-medium transition ${mode === "signin" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-            >
-              เข้าสู่ระบบ
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("signup")}
-              className={`rounded-lg py-2 text-sm font-medium transition ${mode === "signup" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-            >
-              สมัครใหม่
-            </button>
-          </div>
-
-          <form onSubmit={submit} className="space-y-4">
-            {mode === "signup" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="shop">ชื่อร้าน</Label>
-                <Input
-                  id="shop"
-                  value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
-                  placeholder="เช่น Kafe บ้านสวน"
-                  maxLength={80}
-                />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="email">อีเมล</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                inputMode="email"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">รหัสผ่าน</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              />
-            </div>
-            <Button type="submit" className="h-12 w-full text-base font-semibold" disabled={loading}>
-              {loading ? "กำลังดำเนินการ..." : mode === "signup" ? "สมัครและเริ่มใช้งาน" : "เข้าสู่ระบบ"}
-            </Button>
-          </form>
+        <div className="flex justify-center gap-4 mb-10">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className={`h-4 w-4 rounded-full transition-all duration-200 ${
+                pin.length > i ? "bg-primary scale-110" : "bg-muted-foreground/20"
+              }`}
+            />
+          ))}
         </div>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          {mode === "signup" ? "สมัครแล้วคุณจะเป็นเจ้าของร้าน จัดการเมนูและพนักงานได้" : "ยังไม่มีบัญชี? กด \"สมัครใหม่\" ด้านบน"}
-        </p>
+        {loading ? (
+          <div className="py-12 text-center text-primary font-medium animate-pulse">
+            กำลังเข้าสู่ระบบ...
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4 mx-auto max-w-[280px]">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+              <button
+                key={num}
+                onClick={() => pressNumber(num)}
+                className="grid h-20 w-20 place-items-center rounded-full bg-card text-3xl font-semibold shadow-sm border border-border transition active:bg-muted active:scale-95"
+              >
+                {num}
+              </button>
+            ))}
+            <div /> {/* Empty space bottom left */}
+            <button
+              onClick={() => pressNumber(0)}
+              className="grid h-20 w-20 place-items-center rounded-full bg-card text-3xl font-semibold shadow-sm border border-border transition active:bg-muted active:scale-95"
+            >
+              0
+            </button>
+            <button
+              onClick={pressDelete}
+              className="grid h-20 w-20 place-items-center rounded-full bg-card/50 text-muted-foreground transition active:bg-muted active:scale-95"
+            >
+              <Delete className="h-8 w-8" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

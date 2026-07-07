@@ -5,9 +5,9 @@ import { BottomNav } from "@/components/bottom-nav";
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-    return { user: data.user };
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session) throw redirect({ to: "/auth" });
+    return { user: data.session.user };
   },
   component: () => (
     <div className="min-h-screen bg-background" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}>

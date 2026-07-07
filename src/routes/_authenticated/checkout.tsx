@@ -4,6 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { createOrder } from "@/lib/pos.functions";
 import { useCart, formatTHB } from "@/lib/cart-store";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ArrowLeft, Banknote, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,17 +20,9 @@ function CheckoutPage() {
   const clear = useCart((s) => s.clear);
   const createFn = useServerFn(createOrder);
 
-  const [method, setMethod] = useState<"cash" | "transfer">("cash");
-  const [received, setReceived] = useState<string>("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const receivedNum = Number(received || 0);
-  const change = method === "cash" ? Math.max(0, receivedNum - total) : 0;
-  const canPay = method === "transfer" || (method === "cash" && receivedNum >= total);
-
-  const quicks = [total, roundUp(total, 10), roundUp(total, 50), roundUp(total, 100)]
-    .filter((v, i, a) => v > 0 && a.indexOf(v) === i)
-    .slice(0, 4);
 
   if (items.length === 0) {
     return (
@@ -44,9 +38,14 @@ function CheckoutPage() {
     try {
       const res = await createFn({
         data: {
-          items: items.map((i) => ({ productId: i.productId, name: i.name, price: i.price, qty: i.qty })),
-          paymentMethod: method,
-          cashReceived: method === "cash" ? receivedNum : null,
+          items: items.map((i) => {
+            const finalName = i.options && i.options.length > 0 
+              ? `${i.name} (${i.options.join(", ")})` 
+              : i.name;
+            return { productId: i.productId, name: finalName, price: i.price, qty: i.qty };
+          }),
+          paymentMethod: "cash",
+          cashReceived: total,
         },
       });
       clear();
@@ -74,47 +73,56 @@ function CheckoutPage() {
           <p className="mt-1 text-xs text-muted-foreground">{items.reduce((n, i) => n + i.qty, 0)} รายการ</p>
         </div>
 
-        <div>
-          <p className="mb-2 text-sm font-semibold">วิธีการชำระเงิน</p>
-          <div className="grid grid-cols-2 gap-2">
-            <MethodBtn active={method === "cash"} onClick={() => setMethod("cash")} icon={<Banknote className="h-5 w-5" />} label="เงินสด" />
-            <MethodBtn active={method === "transfer"} onClick={() => setMethod("transfer")} icon={<Smartphone className="h-5 w-5" />} label="โอน / QR" />
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="mb-3 text-sm font-semibold">สรุปรายการสั่งซื้อ</p>
+          <ul className="space-y-2.5">
+            {items.map((i, index) => (
+              <li key={index} className="flex items-start justify-between text-sm">
+                <div className="flex gap-2">
+                  <span className="font-semibold text-muted-foreground">{i.qty}x</span>
+                  <div>
+                    <p>{i.name}</p>
+                    {/* Placeholder for future options data */}
+                    {(i as any).options && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {((i as any).options as string[]).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <span className="font-medium">{formatTHB(i.price * i.qty)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex justify-between border-t border-dashed border-border pt-3 font-bold">
+            <span>ยอดรวมทั้งสิ้น</span>
+            <span className="text-primary">{formatTHB(total)}</span>
           </div>
         </div>
 
-        {method === "cash" && (
-          <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">รับเงิน</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                value={received}
-                onChange={(e) => setReceived(e.target.value)}
-                placeholder="0"
-                className="h-14 w-full rounded-xl border border-input bg-background px-4 text-right text-2xl font-bold outline-none focus:border-primary"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {quicks.map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setReceived(String(v))}
-                  className="rounded-full border border-border bg-background px-3 py-1.5 text-sm font-medium hover:border-primary hover:text-primary"
-                >
-                  {formatTHB(v)}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-baseline justify-between border-t border-border pt-3">
-              <span className="text-sm text-muted-foreground">เงินทอน</span>
-              <span className={`text-xl font-bold ${change > 0 ? "text-success" : ""}`}>{formatTHB(change)}</span>
-            </div>
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+          <div>
+            <Label className="mb-1.5 block">ชื่อลูกค้า (ไม่บังคับ)</Label>
+            <Input 
+              value={customerName} 
+              onChange={(e) => setCustomerName(e.target.value)} 
+              placeholder="กรอกชื่อลูกค้า" 
+              className="h-11"
+            />
           </div>
-        )}
+          <div>
+            <Label className="mb-1.5 block">ที่อยู่จัดส่ง (ไม่บังคับ)</Label>
+            <Input 
+              value={customerAddress} 
+              onChange={(e) => setCustomerAddress(e.target.value)} 
+              placeholder="กรอกที่อยู่จัดส่ง" 
+              className="h-11"
+            />
+          </div>
+        </div>
 
-        <Button className="h-14 w-full text-base font-semibold" disabled={!canPay || loading} onClick={pay}>
-          {loading ? "กำลังบันทึก..." : "ยืนยันการชำระเงิน"}
+        <Button className="h-14 w-full text-base font-semibold" disabled={loading} onClick={pay}>
+          {loading ? "กำลังบันทึก..." : "ยืนยันการสั่งซื้อ"}
         </Button>
       </main>
     </div>

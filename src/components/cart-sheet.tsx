@@ -33,27 +33,26 @@ export function CartSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
           ) : (
             <ul className="space-y-3">
               {items.map((i) => (
-                <li key={i.productId} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-                  <div
-                    className="grid h-12 w-12 shrink-0 place-items-center rounded-lg text-white text-xs font-bold"
-                    style={{ backgroundColor: i.color ?? "#2d8ac9" }}
-                  >
-                    {i.name.slice(0, 2)}
+                <li key={i.cartItemId} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm">
+                  <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg text-white text-xs font-bold" style={{ backgroundColor: i.color || "#2d8ac9" }}>
+                    {i.imageUrl && <img src={i.imageUrl} alt={i.name} className="absolute inset-0 h-full w-full object-cover mix-blend-overlay opacity-60" />}
+                    <span className="relative z-10 drop-shadow">{i.name.slice(0, 2)}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{i.name}</p>
-                    <p className="text-xs text-muted-foreground">{formatTHB(i.price)}</p>
+                    {i.options && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{i.options.join(", ")}</p>}
+                    <p className="mt-0.5 text-xs font-medium text-primary">{formatTHB(i.price)}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <button onClick={() => dec(i.productId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground">
-                      <Minus className="h-4 w-4" />
+                    <button onClick={() => dec(i.cartItemId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors">
+                      <Minus className="h-3 w-3" />
                     </button>
                     <span className="w-6 text-center text-sm font-semibold">{i.qty}</span>
-                    <button onClick={() => inc(i.productId)} className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground">
-                      <Plus className="h-4 w-4" />
+                    <button onClick={() => inc(i.cartItemId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors">
+                      <Plus className="h-3 w-3" />
                     </button>
                   </div>
-                  <button onClick={() => remove(i.productId)} className="text-muted-foreground hover:text-destructive">
+                  <button onClick={() => remove(i.cartItemId)} className="text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

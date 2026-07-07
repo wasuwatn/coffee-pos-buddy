@@ -1,10 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listCatalog, seedSampleMenu, getMyContext } from "@/lib/pos.functions";
 import { useCart, formatTHB } from "@/lib/cart-store";
-import { ShoppingBag, Sparkles } from "lucide-react";
+import { ShoppingBag, Sparkles, Plus, Minus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CartSheet } from "@/components/cart-sheet";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ function SellPage() {
 
   const [activeCat, setActiveCat] = useState<string | "all">("all");
   const [cartOpen, setCartOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const totalQty = useCart((s) => s.totalQty());
   const totalAmount = useCart((s) => s.totalAmount());
   const add = useCart((s) => s.add);
@@ -58,19 +59,21 @@ function SellPage() {
           </div>
         </div>
 
-        {/* Category chips */}
+        {/* Category Dropdown */}
         {(catalog.data?.categories.length ?? 0) > 0 && (
-          <div className="-mx-4 mt-3 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-2 px-4 pb-1">
-              <Chip active={activeCat === "all"} onClick={() => setActiveCat("all")} color="#2d8ac9">
-                ทั้งหมด
-              </Chip>
+          <div className="mt-4">
+            <select
+              value={activeCat}
+              onChange={(e) => setActiveCat(e.target.value)}
+              className="h-10 w-full rounded-xl border border-input bg-card px-4 text-sm font-medium shadow-sm outline-none focus:border-primary"
+            >
+              <option value="all">หมวดหมู่ทั้งหมด</option>
               {catalog.data!.categories.map((c) => (
-                <Chip key={c.id} active={activeCat === c.id} onClick={() => setActiveCat(c.id)} color={c.color ?? "#2d8ac9"}>
+                <option key={c.id} value={c.id}>
                   {c.name}
-                </Chip>
+                </option>
               ))}
-            </div>
+            </select>
           </div>
         )}
       </header>
@@ -78,7 +81,7 @@ function SellPage() {
       {/* Grid */}
       <main className="px-4 py-4">
         {catalog.isLoading ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="aspect-square animate-pulse rounded-2xl bg-muted" />
             ))}
@@ -86,12 +89,12 @@ function SellPage() {
         ) : filtered.length === 0 ? (
           <EmptyMenu onSeed={handleSeed} showSeed={ctx.data?.isOwner && (catalog.data?.products.length ?? 0) === 0} />
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {filtered.map((p) => (
               <button
                 key={p.id}
                 onClick={() => {
-                  add({ productId: p.id, name: p.name, price: Number(p.price), color: p.color, imageUrl: p.image_url });
+                  setSelectedProduct(p);
                 }}
                 className="group relative aspect-square overflow-hidden rounded-2xl border border-border bg-card p-3 text-left shadow-sm transition active:scale-95"
               >
@@ -131,6 +134,138 @@ function SellPage() {
       )}
 
       <CartSheet open={cartOpen} onOpenChange={setCartOpen} />
+
+      {selectedProduct && (
+        <ProductOptionModal 
+          product={selectedProduct} 
+          catalog={catalog.data}
+          onClose={() => setSelectedProduct(null)} 
+          onAdd={(item, qty) => {
+            add(item, qty);
+            setSelectedProduct(null);
+          }} 
+        />
+      )}
+    </div>
+  );
+}
+
+function ProductOptionModal({ product, catalog, onClose, onAdd }: any) {
+  const [qty, setQty] = useState(1);
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, any>>({});
+
+  // 1. Find which modifier groups are linked to this product
+  const linkedGroupIds = catalog?.productModifiers
+    ?.filter((pm: any) => pm.product_id === product.id)
+    .map((pm: any) => pm.group_id) ?? [];
+    
+  const linkedGroups = catalog?.modifierGroups?.filter((g: any) => linkedGroupIds.includes(g.id)) ?? [];
+
+  // 2. Initialize default options on mount
+  useEffect(() => {
+    const initial: Record<string, any> = {};
+    linkedGroups.forEach((g: any) => {
+      const opts = catalog?.modifierOptions?.filter((o: any) => o.group_id === g.id) ?? [];
+      if (opts.length > 0) {
+        // Just auto-select the first option by default
+        initial[g.id] = opts[0];
+      }
+    });
+    setSelectedOptions(initial);
+  }, [product.id, catalog]);
+
+  // 3. Calculate extra price
+  let extraPrice = 0;
+  Object.values(selectedOptions).forEach((opt: any) => {
+    if (opt?.price) extraPrice += Number(opt.price);
+  });
+  
+  const unitPrice = Number(product.price) + extraPrice;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+      <div className="w-full max-w-md animate-in slide-in-from-bottom-full rounded-t-3xl bg-card pb-8 pt-5 sm:rounded-3xl sm:slide-in-from-bottom-0 sm:zoom-in-95 max-h-[90vh] overflow-y-auto">
+        <div className="px-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-xl font-bold">{product.name}</h2>
+              <p className="text-lg font-semibold text-primary">{formatTHB(unitPrice)}</p>
+            </div>
+            <button 
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="mt-6 space-y-5">
+            {linkedGroups.length === 0 ? (
+              <div className="py-4 text-center text-sm text-muted-foreground bg-muted/30 rounded-xl">ไม่มีส่วนขยายให้เลือกสำหรับเมนูนี้</div>
+            ) : (
+              linkedGroups.map((g: any) => {
+                const opts = catalog?.modifierOptions?.filter((o: any) => o.group_id === g.id) ?? [];
+                return (
+                  <div key={g.id}>
+                    <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+                      {g.name} {g.is_required && <span className="text-destructive">*</span>}
+                    </h3>
+                    <div className="flex flex-col gap-2">
+                      {opts.map((opt: any) => {
+                        const isSelected = selectedOptions[g.id]?.id === opt.id;
+                        return (
+                          <button 
+                            key={opt.id}
+                            onClick={() => setSelectedOptions(prev => ({ ...prev, [g.id]: opt }))}
+                            className={`rounded-xl border-2 px-4 py-3 text-sm font-medium transition w-full flex justify-between items-center ${isSelected ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-foreground hover:border-primary/50"}`}
+                          >
+                            <span>{opt.name}</span>
+                            {opt.price > 0 && <span className="text-[18px] font-semibold text-blue-600">+฿{opt.price}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="mt-8">
+            <div className="mb-5 flex items-center justify-between rounded-xl border border-border bg-card p-2 shadow-sm">
+              <span className="pl-3 font-semibold text-foreground">จำนวน</span>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setQty(Math.max(1, qty - 1))} className="grid h-10 w-10 place-items-center rounded-lg bg-muted text-foreground hover:bg-muted/80">
+                  <Minus className="h-4 w-4" />
+                </button>
+                <span className="w-10 text-center text-lg font-bold">{qty}</span>
+                <button onClick={() => setQty(qty + 1)} className="grid h-10 w-10 place-items-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <Button 
+                className="h-12 flex-1 text-base font-semibold" 
+                onClick={() => {
+                  const optsText = Object.values(selectedOptions).map((o: any) => o.name);
+                  onAdd({ 
+                    productId: product.id, 
+                    name: product.name, 
+                    price: unitPrice, 
+                    color: product.color, 
+                    imageUrl: product.image_url,
+                    options: optsText.length > 0 ? optsText : undefined
+                  }, qty);
+                }}
+              >
+                เพิ่มลงตะกร้า • {formatTHB(unitPrice * qty)}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
