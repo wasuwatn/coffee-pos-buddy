@@ -1,24 +1,25 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { getOrder } from "@/lib/pos.functions";
+import { useOrders } from "@/lib/hub/orders";
 import { formatTHB } from "@/lib/cart-store";
 import { CheckCircle2, Home, Receipt as ReceiptIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/receipt/$id")({
   component: ReceiptPage,
 });
 
+const PAY_LABEL: Record<string, string> = {
+  Cash: "เงินสด",
+  PromptPay: "PromptPay",
+  Transfer: "โอนเงิน",
+};
+
 function ReceiptPage() {
   const { id } = Route.useParams();
-  const getFn = useServerFn(getOrder);
-  const q = useQuery({ queryKey: ["order", id], queryFn: () => getFn({ data: { id } }) });
+  const q = useOrders();
 
   if (q.isLoading) return <div className="p-8 text-center text-muted-foreground">กำลังโหลด...</div>;
-  if (!q.data) return <div className="p-8 text-center text-muted-foreground">ไม่พบบิล</div>;
-
-  const { order, items } = q.data;
+  const order = q.data?.find((o) => o.orderNo === id);
+  if (!order) return <div className="p-8 text-center text-muted-foreground">ไม่พบบิล</div>;
 
   return (
     <div className="mx-auto max-w-md px-4 py-6">
@@ -31,42 +32,63 @@ function ReceiptPage() {
 
       <div className="rounded-2xl border border-border bg-card p-5">
         <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>บิล #{order.order_number}</span>
-          <span>{new Date(order.created_at).toLocaleString("th-TH")}</span>
+          <span>บิล #{order.orderNo}</span>
+          <span>
+            {new Date(order.date).toLocaleDateString("th-TH", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+          </span>
         </div>
 
         <ul className="mb-3 divide-y divide-border">
-          {items.map((it) => (
-            <li key={it.id} className="flex items-start justify-between py-2 text-sm">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{it.name_snapshot}</p>
-                <p className="text-xs text-muted-foreground">{formatTHB(Number(it.price_snapshot))} × {it.qty}</p>
-              </div>
-              <span className="ml-3 font-semibold">{formatTHB(Number(it.line_total))}</span>
-            </li>
-          ))}
+          {order.items.map((it) => {
+            const addonNames: string[] = (() => {
+              try {
+                return JSON.parse(it.addons || "[]");
+              } catch {
+                return [];
+              }
+            })();
+            const optionParts = [it.variant, it.container, it.sweetness, ...addonNames].filter(
+              Boolean,
+            );
+            return (
+              <li key={it.id} className="flex items-start justify-between py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{it.menu_name}</p>
+                  {optionParts.length > 0 && (
+                    <p className="text-xs text-muted-foreground">{optionParts.join(", ")}</p>
+                  )}
+                </div>
+                <span className="ml-3 font-semibold">{formatTHB(Number(it.total_price))}</span>
+              </li>
+            );
+          })}
         </ul>
 
         <div className="space-y-1 border-t border-dashed border-border pt-3 text-sm">
-          <Row label="ยอดรวม" value={formatTHB(Number(order.total))} bold />
-          <Row label={order.payment_method === "cash" ? "เงินสด" : "โอน / QR"} value={
-            order.payment_method === "cash" && order.cash_received != null
-              ? formatTHB(Number(order.cash_received))
-              : formatTHB(Number(order.total))
-          } />
-          {order.payment_method === "cash" && order.change_amount != null && Number(order.change_amount) > 0 && (
-            <Row label="เงินทอน" value={formatTHB(Number(order.change_amount))} />
-          )}
+          <Row label="ยอดรวม" value={formatTHB(order.total)} bold />
+          <Row label="ชำระโดย" value={PAY_LABEL[order.paymentMethod] ?? order.paymentMethod} />
         </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-2">
-        <Button variant="outline" asChild>
-          <Link to="/history"><ReceiptIcon className="mr-1.5 h-4 w-4" />ประวัติ</Link>
-        </Button>
-        <Button asChild>
-          <Link to="/"><Home className="mr-1.5 h-4 w-4" />ขายต่อ</Link>
-        </Button>
+        <Link
+          to="/history"
+          className="flex h-11 items-center justify-center gap-1.5 rounded-md border border-input text-sm font-medium hover:bg-accent"
+        >
+          <ReceiptIcon className="h-4 w-4" />
+          ประวัติ
+        </Link>
+        <Link
+          to="/"
+          className="flex h-11 items-center justify-center gap-1.5 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <Home className="h-4 w-4" />
+          ขายต่อ
+        </Link>
       </div>
     </div>
   );
@@ -74,7 +96,9 @@ function ReceiptPage() {
 
 function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div className={`flex justify-between ${bold ? "text-base font-bold" : "text-muted-foreground"}`}>
+    <div
+      className={`flex justify-between ${bold ? "text-base font-bold" : "text-muted-foreground"}`}
+    >
       <span>{label}</span>
       <span className={bold ? "text-foreground" : ""}>{value}</span>
     </div>

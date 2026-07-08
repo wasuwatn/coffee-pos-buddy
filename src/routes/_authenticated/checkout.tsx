@@ -1,57 +1,165 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { createOrder } from "@/lib/pos.functions";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCart, formatTHB } from "@/lib/cart-store";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ArrowLeft, Banknote, Smartphone } from "lucide-react";
+import { useCatalog, computeRequirements } from "@/lib/hub/catalog";
+import { useHubUser } from "@/lib/hub/session";
+import { hub, HubApiError } from "@/lib/hub/client";
+import { today } from "@/lib/hub/pos-helpers";
+import { promptpayPayload } from "@/lib/hub/promptpay";
+import QRCode from "qrcode";
+import { useEffect } from "react";
+import { ArrowLeft, Banknote, Smartphone, QrCode } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/checkout")({
   component: CheckoutPage,
 });
 
+type PayMethod = "Cash" | "PromptPay" | "Transfer";
+
 function CheckoutPage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const items = useCart((s) => s.items);
   const total = useCart((s) => s.totalAmount());
   const clear = useCart((s) => s.clear);
-  const createFn = useServerFn(createOrder);
+  const user = useHubUser();
+  const catalog = useCatalog();
+  const shift = useQuery({ queryKey: ["hub-shift-current"], queryFn: () => hub.shiftCurrent() });
 
   const [customerName, setCustomerName] = useState("");
-  const [customerAddress, setCustomerAddress] = useState("");
+  const [payMethod, setPayMethod] = useState<PayMethod>("Cash");
+  const [cashReceived, setCashReceived] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [qrUrl, setQrUrl] = useState("");
+
+  const shopSettings = catalog.data?.settings;
+  const changeDue =
+    payMethod === "Cash" && cashReceived !== "" ? Number(cashReceived) - total : null;
+
+  useEffect(() => {
+    if (payMethod !== "PromptPay" || !shopSettings?.promptpay_id) {
+      setQrUrl("");
+      return;
+    }
+    QRCode.toDataURL(promptpayPayload(shopSettings.promptpay_id, total), { width: 320, margin: 1 })
+      .then(setQrUrl)
+      .catch(() => setQrUrl(""));
+  }, [payMethod, shopSettings?.promptpay_id, total]);
 
   if (items.length === 0) {
     return (
       <div className="mx-auto max-w-md px-6 py-16 text-center">
         <p className="text-muted-foreground">ตะกร้าว่างเปล่า</p>
-        <Button className="mt-4" onClick={() => navigate({ to: "/" })}>กลับหน้าขาย</Button>
+        <button
+          className="mt-4 h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground"
+          onClick={() => navigate({ to: "/" })}
+        >
+          กลับหน้าขาย
+        </button>
+      </div>
+    );
+  }
+
+  if (shift.isLoading) {
+    return <div className="p-8 text-center text-muted-foreground">กำลังตรวจสอบกะ...</div>;
+  }
+
+  if (!shift.data) {
+    return (
+      <div className="mx-auto max-w-md px-6 py-16 text-center">
+        <p className="font-semibold">ยังไม่ได้เปิดกะ</p>
+        <p className="mt-1 text-sm text-muted-foreground">กรุณาเปิดกะที่หน้าตั้งค่าก่อนเริ่มขาย</p>
+        <button
+          className="mt-4 h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground"
+          onClick={() => navigate({ to: "/settings" })}
+        >
+          ไปหน้าตั้งค่า
+        </button>
       </div>
     );
   }
 
   const pay = async () => {
+    if (payMethod === "Cash" && cashReceived !== "" && (changeDue ?? 0) < 0) {
+      toast.error("รับเงินน้อยกว่ายอดที่ต้องชำระ");
+      return;
+    }
+    if (!catalog.data) return;
     setLoading(true);
     try {
-      const res = await createFn({
-        data: {
-          items: items.map((i) => {
-            const finalName = i.options && i.options.length > 0 
-              ? `${i.name} (${i.options.join(", ")})` 
-              : i.name;
-            return { productId: i.productId, name: finalName, price: i.price, qty: i.qty };
-          }),
-          paymentMethod: "cash",
-          cashReceived: total,
-        },
+      const lines = items.map((i) => {
+        const product = catalog.data!.products.find((p) => p.id === i.menuId);
+        return { name: product?.name ?? i.name, qty: i.qty, childId: i.childId };
+      });
+      const requirements = Object.entries(
+        computeRequirements(
+          lines,
+          catalog.data.bom,
+          catalog.data.packagingbom,
+          catalog.data.childmenu,
+          catalog.data.matprepbom,
+        ),
+      ).map(([material_id, qty]) => ({
+        material_id,
+        qty,
+        note: `Kafe POS: ${items.map((i) => `${i.name} x${i.qty}`).join(", ")}`,
+      }));
+
+      const sales: Record<string, unknown>[] = [];
+      for (const item of items) {
+        const product = catalog.data.products.find((p) => p.id === item.menuId);
+        const variant = catalog.data.childmenu.find((c) => String(c.id) === String(item.childId));
+        const addonPrice = item.addonNames.reduce(
+          (n, name) =>
+            n + Number(catalog.data!.addons.find((a) => a.name === name)?.price_change ?? 0),
+          0,
+        );
+        for (let i = 0; i < item.qty; i++) {
+          sales.push({
+            date: today(),
+            customer_name: customerName.trim() || "Walk-in",
+            payment_method: payMethod,
+            shift_id: String(shift.data!.id),
+            order_type: "Dine-in",
+            menu_name: product?.name ?? item.name,
+            variant: variant?.name ?? "",
+            quantity: 1,
+            sweetness: item.sweetness,
+            container: item.container,
+            addons: JSON.stringify(item.addonNames),
+            addon_price: addonPrice,
+            total_price: item.price,
+            cashier: user?.username ?? "",
+            is_free: "0",
+            promotion_id: "",
+          });
+        }
+      }
+
+      const res = await hub.checkoutPos({
+        client_txn_id: crypto.randomUUID(),
+        date: today(),
+        sales,
+        requirements,
       });
       clear();
-      navigate({ to: "/receipt/$id", params: { id: res.orderId } });
+      qc.invalidateQueries({ queryKey: ["hub-shift-current"] });
+      qc.invalidateQueries({ queryKey: ["hub-orders"] });
+      if ("duplicate" in res) {
+        toast.info("บิลนี้ถูกบันทึกไปแล้ว");
+        navigate({ to: "/history" });
+        return;
+      }
+      if (payMethod === "Cash" && cashReceived !== "" && (changeDue ?? 0) > 0) {
+        toast.success(`เงินทอน ${formatTHB(changeDue!)}`, { duration: 6000 });
+      }
+      const orderNo = String((res[0] as { order_no?: string })?.order_no ?? "");
+      navigate(orderNo ? { to: "/receipt/$id", params: { id: orderNo } } : { to: "/history" });
     } catch (e) {
-      toast.error((e as Error).message);
+      const message = e instanceof HubApiError ? e.message : "บันทึกการขายไม่สำเร็จ";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -59,8 +167,14 @@ function CheckoutPage() {
 
   return (
     <div className="mx-auto max-w-md">
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-3" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
-        <button onClick={() => navigate({ to: "/" })} className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted">
+      <header
+        className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-3"
+        style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+      >
+        <button
+          onClick={() => navigate({ to: "/" })}
+          className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"
+        >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">เก็บเงิน</h1>
@@ -70,7 +184,9 @@ function CheckoutPage() {
         <div className="rounded-2xl border border-border bg-card p-5 text-center">
           <p className="text-sm text-muted-foreground">ยอดที่ต้องชำระ</p>
           <p className="mt-1 text-4xl font-bold text-primary">{formatTHB(total)}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{items.reduce((n, i) => n + i.qty, 0)} รายการ</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {items.reduce((n, i) => n + i.qty, 0)} รายการ
+          </p>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-4">
@@ -82,11 +198,8 @@ function CheckoutPage() {
                   <span className="font-semibold text-muted-foreground">{i.qty}x</span>
                   <div>
                     <p>{i.name}</p>
-                    {/* Placeholder for future options data */}
-                    {(i as any).options && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {((i as any).options as string[]).join(", ")}
-                      </p>
+                    {i.options && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{i.options.join(", ")}</p>
                     )}
                   </div>
                 </div>
@@ -100,49 +213,114 @@ function CheckoutPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
-          <div>
-            <Label className="mb-1.5 block">ชื่อลูกค้า (ไม่บังคับ)</Label>
-            <Input 
-              value={customerName} 
-              onChange={(e) => setCustomerName(e.target.value)} 
-              placeholder="กรอกชื่อลูกค้า" 
-              className="h-11"
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="mb-3 text-sm font-semibold">วิธีชำระเงิน</p>
+          <div className="grid grid-cols-3 gap-2">
+            <MethodBtn
+              active={payMethod === "Cash"}
+              onClick={() => setPayMethod("Cash")}
+              icon={<Banknote className="h-5 w-5" />}
+              label="เงินสด"
+            />
+            <MethodBtn
+              active={payMethod === "PromptPay"}
+              onClick={() => setPayMethod("PromptPay")}
+              icon={<QrCode className="h-5 w-5" />}
+              label="PromptPay"
+            />
+            <MethodBtn
+              active={payMethod === "Transfer"}
+              onClick={() => setPayMethod("Transfer")}
+              icon={<Smartphone className="h-5 w-5" />}
+              label="โอนเงิน"
             />
           </div>
+
+          {payMethod === "Cash" && (
+            <div className="mt-4 space-y-2">
+              <label className="block text-sm font-medium">รับเงินมา (บาท)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={cashReceived}
+                onChange={(e) => setCashReceived(e.target.value)}
+                placeholder={String(total)}
+                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+              {changeDue != null && changeDue >= 0 && (
+                <p className="text-sm text-muted-foreground">เงินทอน: {formatTHB(changeDue)}</p>
+              )}
+            </div>
+          )}
+
+          {payMethod === "PromptPay" && (
+            <div className="mt-4 flex flex-col items-center gap-2">
+              {shopSettings?.promptpay_id ? (
+                qrUrl ? (
+                  <img
+                    src={qrUrl}
+                    alt="PromptPay QR"
+                    className="h-56 w-56 rounded-xl border border-border"
+                  />
+                ) : (
+                  <div className="h-56 w-56 animate-pulse rounded-xl bg-muted" />
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  ยังไม่ได้ตั้งค่าเลข PromptPay (ตั้งค่าได้ที่แอป Mother)
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">ให้ลูกค้าสแกนจ่าย {formatTHB(total)}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
           <div>
-            <Label className="mb-1.5 block">ที่อยู่จัดส่ง (ไม่บังคับ)</Label>
-            <Input 
-              value={customerAddress} 
-              onChange={(e) => setCustomerAddress(e.target.value)} 
-              placeholder="กรอกที่อยู่จัดส่ง" 
-              className="h-11"
+            <label className="mb-1.5 block text-sm font-medium">ชื่อลูกค้า (ไม่บังคับ)</label>
+            <input
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="กรอกชื่อลูกค้า"
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
             />
           </div>
         </div>
 
-        <Button className="h-14 w-full text-base font-semibold" disabled={loading} onClick={pay}>
+        <button
+          className="h-14 w-full rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-sm transition active:scale-[0.98] disabled:opacity-50"
+          disabled={loading}
+          onClick={pay}
+        >
           {loading ? "กำลังบันทึก..." : "ยืนยันการสั่งซื้อ"}
-        </Button>
+        </button>
       </main>
     </div>
   );
 }
 
-function MethodBtn({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function MethodBtn({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
   return (
     <button
       onClick={onClick}
       className={`flex flex-col items-center gap-1.5 rounded-xl border-2 py-4 font-semibold transition ${
-        active ? "border-primary bg-primary/5 text-primary" : "border-border bg-card text-muted-foreground"
+        active
+          ? "border-primary bg-primary/5 text-primary"
+          : "border-border bg-card text-muted-foreground"
       }`}
     >
       {icon}
-      <span>{label}</span>
+      <span className="text-xs">{label}</span>
     </button>
   );
-}
-
-function roundUp(n: number, m: number) {
-  return Math.ceil(n / m) * m;
 }
