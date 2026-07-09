@@ -89,10 +89,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "POS สำหรับร้านกาแฟ ใช้ง่ายบนไอโฟน" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      // "Add to Home Screen" installability — standalone display + custom
+      // icon. No service worker on purpose: offline mode isn't built yet
+      // (see README "Known gaps"), and a half-wired SW would risk caching
+      // stale API responses, which is worse than no SW at all. iOS Safari
+      // reads these apple-* tags more reliably than the manifest alone on
+      // older iOS versions, so both are set.
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Kafe POS" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
+      { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

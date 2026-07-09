@@ -73,7 +73,32 @@ After deploying:
 
 1. Add the resulting `*.vercel.app` (or custom) domain to the hub's
    `CORS_ORIGIN` env var and restart the hub.
-2. Open the deployed URL on an iPhone, "Add to Home Screen" for an app-like feel.
+2. Install it on the phone as a PWA — see below.
+
+## Install as a PWA (home screen app)
+
+The app ships a web manifest + icons (`public/manifest.webmanifest`,
+`public/icons/`) so "Add to Home Screen" opens full-screen without Safari's
+address bar, with its own icon — no App Store needed. There's **no service
+worker / offline caching** on purpose (see "Known gaps" below); this only
+covers the icon + standalone window, not offline use.
+
+**iPhone (Safari — this app is built for this):**
+
+1. Open the deployed URL in **Safari** (must be Safari, not Chrome — iOS
+   only allows installing from Safari).
+2. Tap the **Share** button (square with an arrow pointing up).
+3. Scroll down and tap **Add to Home Screen**.
+4. Confirm the name (defaults to "Kafe POS") and tap **Add**.
+5. The icon appears on the home screen and opens full-screen, no browser chrome.
+
+**Android (Chrome):** open the URL → tap the **⋮** menu → **Add to Home
+screen** / **Install app**.
+
+The icons in `public/icons/` are a **placeholder** (a plain coffee-cup glyph
+on the app's brand color) — swap those three PNG files with the shop's real
+logo whenever you have one; no other code changes needed since the manifest
+and `__root.tsx` already reference those exact filenames.
 
 ## Cutover from `pos.html`
 
