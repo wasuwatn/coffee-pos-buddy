@@ -12,4 +12,13 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Pinned to Vercel instead of the wrapper's Cloudflare default — this app
+  // has no backend of its own (see src/lib/hub/client.ts), so any target
+  // works; Vercel matches how the rest of the SMA08 hub's satellite apps
+  // (customer.html, expense-review.html) already deploy. Only takes effect
+  // outside a Lovable-hosted build, where the preset/output are forced to
+  // Cloudflare regardless (see LovableViteTanstackOptions.nitro in
+  // node_modules/@lovable.dev/vite-tanstack-config/dist/index.d.ts) — build
+  // from the CLI or on Vercel's own build servers, not Lovable's "Publish".
+  nitro: { preset: "vercel" },
 });

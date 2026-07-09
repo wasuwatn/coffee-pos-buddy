@@ -1,7 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { getOrder } from "@/lib/pos.functions";
+import { useOrders } from "@/lib/hub/orders";
 import { formatTHB } from "@/lib/cart-store";
 import { ArrowLeft } from "lucide-react";
 
@@ -9,48 +7,87 @@ export const Route = createFileRoute("/_authenticated/history/$id")({
   component: HistoryDetail,
 });
 
+const PAY_LABEL: Record<string, string> = {
+  Cash: "เงินสด",
+  PromptPay: "PromptPay",
+  Transfer: "โอนเงิน",
+};
+
 function HistoryDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
-  const fn = useServerFn(getOrder);
-  const q = useQuery({ queryKey: ["order", id], queryFn: () => fn({ data: { id } }) });
+  const q = useOrders();
 
   if (q.isLoading) return <div className="p-8 text-center text-muted-foreground">กำลังโหลด...</div>;
-  if (!q.data) return <div className="p-8 text-center text-muted-foreground">ไม่พบบิล</div>;
-  const { order, items } = q.data;
+  const order = q.data?.find((o) => o.orderNo === id);
+  if (!order) return <div className="p-8 text-center text-muted-foreground">ไม่พบบิล</div>;
 
   return (
     <div className="mx-auto max-w-md">
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-3" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
-        <button onClick={() => navigate({ to: "/history" })} className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted">
+      <header
+        className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-3 py-3"
+        style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+      >
+        <button
+          onClick={() => navigate({ to: "/history" })}
+          className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted"
+        >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-bold">บิล #{order.order_number}</h1>
+        <h1 className="text-lg font-bold">บิล #{order.orderNo}</h1>
       </header>
 
       <main className="px-4 py-4">
         <div className="rounded-2xl border border-border bg-card p-5">
           <div className="mb-3 space-y-0.5 text-xs text-muted-foreground">
-            <p>วันที่: {new Date(order.created_at).toLocaleString("th-TH")}</p>
-            {order.cashier_name && <p>แคชเชียร์: {order.cashier_name}</p>}
-            <p>ชำระเงินโดย: {order.payment_method === "cash" ? "เงินสด" : "โอน / QR"}</p>
+            <p>
+              วันที่:{" "}
+              {new Date(order.date).toLocaleDateString("th-TH", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </p>
+            {order.cashier && <p>แคชเชียร์: {order.cashier}</p>}
+            <p>ชำระเงินโดย: {PAY_LABEL[order.paymentMethod] ?? order.paymentMethod}</p>
           </div>
 
           <ul className="divide-y divide-border">
-            {items.map((it) => (
-              <li key={it.id} className="flex items-start justify-between py-2 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium">{it.name_snapshot}</p>
-                  <p className="text-xs text-muted-foreground">{formatTHB(Number(it.price_snapshot))} × {it.qty}</p>
-                </div>
-                <span className="ml-3 font-semibold">{formatTHB(Number(it.line_total))}</span>
-              </li>
-            ))}
+            {order.items.map((it) => {
+              const addonNames: string[] = (() => {
+                try {
+                  return JSON.parse(it.addons || "[]");
+                } catch {
+                  return [];
+                }
+              })();
+              const optionParts = [it.variant, it.container, it.sweetness, ...addonNames].filter(
+                Boolean,
+              );
+              return (
+                <li key={it.id} className="flex items-start justify-between py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium">
+                      {it.menu_name}
+                      {it.is_free === "1" && (
+                        <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          ฟรี
+                        </span>
+                      )}
+                    </p>
+                    {optionParts.length > 0 && (
+                      <p className="text-xs text-muted-foreground">{optionParts.join(", ")}</p>
+                    )}
+                  </div>
+                  <span className="ml-3 font-semibold">{formatTHB(Number(it.total_price))}</span>
+                </li>
+              );
+            })}
           </ul>
 
           <div className="mt-3 flex justify-between border-t border-dashed border-border pt-3 text-lg font-bold">
             <span>ยอดรวม</span>
-            <span>{formatTHB(Number(order.total))}</span>
+            <span>{formatTHB(order.total)}</span>
           </div>
         </div>
       </main>

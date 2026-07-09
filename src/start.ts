@@ -1,7 +1,6 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
-import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -18,7 +17,10 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
   }
 });
 
+// No functionMiddleware needed: this app has no TanStack Start server
+// functions of its own — every read/write goes straight from the browser to
+// the SMA08 hub API (see src/lib/hub/client.ts) with its own JWT, not
+// Supabase's bearer-token-attacher pattern.
 export const startInstance = createStart(() => ({
-  functionMiddleware: [attachSupabaseAuth],
   requestMiddleware: [errorMiddleware],
 }));

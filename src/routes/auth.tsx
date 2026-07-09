@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { Coffee, Delete } from "lucide-react";
+import { hub, HubApiError } from "@/lib/hub/client";
+import { getStoredUser } from "@/lib/hub/client";
+import { Coffee, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
@@ -14,69 +15,35 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-const PIN_CODE = "1111";
-const DEMO_EMAIL = "demo@kafepos.local";
-const DEMO_PASS = "demo-password-1111";
-
 function AuthPage() {
   const navigate = useNavigate();
-  const [pin, setPin] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) navigate({ to: "/" });
-    });
+    if (getStoredUser()) navigate({ to: "/" });
   }, [navigate]);
 
-  useEffect(() => {
-    if (pin.length === 4) {
-      if (pin === PIN_CODE) {
-        handleLogin();
-      } else {
-        toast.error("รหัส PIN ไม่ถูกต้อง");
-        setPin("");
-      }
-    }
-  }, [pin]);
-
-  const handleLogin = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim() || !password) return;
     setLoading(true);
+    setError("");
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: DEMO_EMAIL,
-        password: DEMO_PASS,
-      });
-
-      if (signInError) {
-        // If sign in fails (likely doesn't exist yet), we sign them up automatically
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: DEMO_EMAIL,
-          password: DEMO_PASS,
-          options: { data: { shop_name: "ร้าน Demo", full_name: "พนักงาน 1111" } },
-        });
-        if (signUpError) throw signUpError;
-        toast.success("สร้างบัญชี Demo สำหรับรหัส 1111 สำเร็จ");
+      const user = await hub.login(username.trim(), password);
+      if (user.mustChangePassword) {
+        toast.info("กรุณาเปลี่ยนรหัสผ่าน (ยังใช้รหัสผ่านตั้งต้นอยู่)");
       }
-      
       navigate({ to: "/" });
     } catch (err) {
-      toast.error((err as Error).message);
-      setPin("");
+      const message = err instanceof HubApiError ? err.message : "เข้าสู่ระบบไม่สำเร็จ";
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const pressNumber = (num: number) => {
-    if (pin.length < 4 && !loading) {
-      setPin((prev) => prev + num);
-    }
-  };
-
-  const pressDelete = () => {
-    if (pin.length > 0 && !loading) {
-      setPin((prev) => prev.slice(0, -1));
     }
   };
 
@@ -89,51 +56,56 @@ function AuthPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold">Kafe POS</h1>
-            <p className="mt-1 text-sm text-muted-foreground">เข้าสู่ระบบด้วยรหัส PIN (1111)</p>
+            <p className="mt-1 text-sm text-muted-foreground">เข้าสู่ระบบด้วยบัญชีพนักงาน</p>
           </div>
         </div>
 
-        <div className="flex justify-center gap-4 mb-10">
-          {[0, 1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className={`h-4 w-4 rounded-full transition-all duration-200 ${
-                pin.length > i ? "bg-primary scale-110" : "bg-muted-foreground/20"
-              }`}
+        <form onSubmit={handleLogin} className="space-y-4">
+          {error && (
+            <div className="rounded-xl bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">ชื่อผู้ใช้</label>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder="admin"
+              className="h-12 w-full rounded-xl border border-input bg-card px-4 text-base outline-none focus:border-primary"
             />
-          ))}
-        </div>
-
-        {loading ? (
-          <div className="py-12 text-center text-primary font-medium animate-pulse">
-            กำลังเข้าสู่ระบบ...
           </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-4 mx-auto max-w-[280px]">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">รหัสผ่าน</label>
+            <div className="relative">
+              <input
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••"
+                className="h-12 w-full rounded-xl border border-input bg-card px-4 pr-11 text-base outline-none focus:border-primary"
+              />
               <button
-                key={num}
-                onClick={() => pressNumber(num)}
-                className="grid h-20 w-20 place-items-center rounded-full bg-card text-3xl font-semibold shadow-sm border border-border transition active:bg-muted active:scale-95"
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute inset-y-0 right-0 grid w-11 place-items-center text-muted-foreground"
+                aria-label={showPw ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
               >
-                {num}
+                {showPw ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
-            ))}
-            <div /> {/* Empty space bottom left */}
-            <button
-              onClick={() => pressNumber(0)}
-              className="grid h-20 w-20 place-items-center rounded-full bg-card text-3xl font-semibold shadow-sm border border-border transition active:bg-muted active:scale-95"
-            >
-              0
-            </button>
-            <button
-              onClick={pressDelete}
-              className="grid h-20 w-20 place-items-center rounded-full bg-card/50 text-muted-foreground transition active:bg-muted active:scale-95"
-            >
-              <Delete className="h-8 w-8" />
-            </button>
+            </div>
           </div>
-        )}
+          <button
+            type="submit"
+            disabled={loading || !username.trim() || !password}
+            className="h-12 w-full rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition active:scale-[0.98] disabled:opacity-50"
+          >
+            {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+          </button>
+        </form>
       </div>
     </div>
   );
