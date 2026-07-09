@@ -96,12 +96,9 @@ function SellPage() {
                       background: `linear-gradient(135deg, ${color} 0%, color-mix(in oklab, ${color} 60%, black) 100%)`,
                     }}
                   />
-                  <div className="relative flex h-full flex-col justify-between text-white">
-                    <p className="line-clamp-2 break-words text-sm font-semibold leading-snug drop-shadow">
+                  <div className="relative flex h-full flex-col justify-center text-white">
+                    <p className="line-clamp-3 break-words text-sm font-semibold leading-snug drop-shadow">
                       {p.name}
-                    </p>
-                    <p className="truncate text-lg font-bold drop-shadow">
-                      {formatTHB(Number(p.front_price))}
                     </p>
                   </div>
                 </button>
