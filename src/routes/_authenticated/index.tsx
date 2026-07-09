@@ -97,10 +97,10 @@ function SellPage() {
                     }}
                   />
                   <div className="relative flex h-full flex-col justify-between text-white">
-                    <p className="line-clamp-2 text-sm font-semibold leading-snug drop-shadow">
+                    <p className="line-clamp-2 break-words text-sm font-semibold leading-snug drop-shadow">
                       {p.name}
                     </p>
-                    <p className="text-lg font-bold drop-shadow">
+                    <p className="truncate text-lg font-bold drop-shadow">
                       {formatTHB(Number(p.front_price))}
                     </p>
                   </div>
