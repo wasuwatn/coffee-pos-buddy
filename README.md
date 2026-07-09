@@ -39,28 +39,39 @@ open one from **Settings → กะเงินสด**.
 bun run build
 ```
 
-Produces a Cloudflare Workers build in `.output/` (the toolchain's nitro
-preset defaults to `cloudflare-module` — see the comment at the top of
-`vite.config.ts`). `VITE_API_BASE` is baked in at build time, so set it
-before building, not after deploying.
+Produces a [Vercel Build Output API v3](https://vercel.com/docs/build-output-api/v3)
+bundle in `.vercel/output/` — a Node.js serverless function for SSR plus a
+static `assets/` folder. The toolchain's nitro build defaults to Cloudflare
+(see the comment at the top of `vite.config.ts`); `nitro: { preset: "vercel" }`
+in that same file overrides it to target Vercel instead — this only takes
+effect building outside Lovable's own hosted "Publish" (which forces
+Cloudflare regardless), i.e. from the CLI or on Vercel's own build servers,
+which is the normal case for an independent deploy. `VITE_API_BASE` is baked
+in at build time, so set it before building, not after deploying.
 
-## Deploy (Cloudflare Workers)
+## Deploy (Vercel)
+
+**One-off / manual:**
 
 ```bash
-npx wrangler login          # once, interactively — or set CLOUDFLARE_API_TOKEN
+npx vercel login    # once, interactively
 bun run build
-npx nitro deploy --prebuilt
+npx vercel deploy --prebuilt --prod
 ```
 
-The build auto-generates a worker name (`wrangler.json` inside `.output/server/`)
-from the repo name unless you set one yourself. For an ongoing setup, connect
-this GitHub repo to a Cloudflare Workers/Pages project instead, so pushes to
-this branch redeploy automatically — set `VITE_API_BASE` as a build-time
-environment variable in that project's settings.
+**Ongoing (recommended):** connect this GitHub repo to a Vercel project so
+pushes to this branch redeploy automatically.
+
+1. In the Vercel dashboard, import the repo. Framework Preset: **Other**.
+2. Build Command: `bun run build` (or `npm run build`). Install Command:
+   `bun install` (or `npm install`). Leave Output Directory unset — Vercel
+   auto-detects `.vercel/output` from the Build Output API contract.
+3. Add env var `VITE_API_BASE=https://<hub-public-url>` (build-time, so it
+   must be set before the first deploy — redeploy after changing it).
 
 After deploying:
 
-1. Add the resulting `*.workers.dev` (or custom) domain to the hub's
+1. Add the resulting `*.vercel.app` (or custom) domain to the hub's
    `CORS_ORIGIN` env var and restart the hub.
 2. Open the deployed URL on an iPhone, "Add to Home Screen" for an app-like feel.
 
