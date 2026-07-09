@@ -155,7 +155,19 @@ function CheckoutPage() {
       if (payMethod === "Cash" && cashReceived !== "" && (changeDue ?? 0) > 0) {
         toast.success(`เงินทอน ${formatTHB(changeDue!)}`, { duration: 6000 });
       }
-      const orderNo = String((res[0] as { order_no?: string })?.order_no ?? "");
+      const first = res[0] as { order_no?: string; claim_code?: string; claim_points?: number };
+      const orderNo = String(first?.order_no ?? "");
+      // Additive loyalty QR: the checkout response carries a one-time claim
+      // code (see runCheckout in SMA08's server/index.js) whenever the order
+      // earned points. Stash it for the receipt page — it's only ever read
+      // right after this checkout, never for a later reprint (those go
+      // through /history/$id instead, which has no claim data).
+      if (orderNo && first?.claim_code) {
+        sessionStorage.setItem(
+          `kafe-receipt-claim-${orderNo}`,
+          JSON.stringify({ code: first.claim_code, points: first.claim_points ?? 0 }),
+        );
+      }
       navigate(orderNo ? { to: "/receipt/$id", params: { id: orderNo } } : { to: "/history" });
     } catch (e) {
       const message = e instanceof HubApiError ? e.message : "บันทึกการขายไม่สำเร็จ";

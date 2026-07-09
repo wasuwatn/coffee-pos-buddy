@@ -22,6 +22,18 @@ VITE_API_BASE="https://<your-hub-url>"
 Leave it empty only if this app is served from the exact same origin as the
 hub (uncommon — the two are normally deployed separately).
 
+Optional — for the receipt loyalty QR (customer scans/types a 6-char code
+printed after checkout to earn points, see SMA08's `INTEGRATION_PLAN.md`):
+
+```
+VITE_LIFF_ID="<LINE LIFF app id, if using the LINE rewards portal>"
+VITE_PORTAL_BASE="https://<hub-public-url>"
+```
+
+Both are optional. If `VITE_LIFF_ID` is set the QR opens through
+`liff.line.me` (LINE handles login); otherwise it falls back to
+`VITE_PORTAL_BASE` (or `VITE_API_BASE` if that's unset) + `/customer.html`.
+
 ## Dev
 
 ```bash
