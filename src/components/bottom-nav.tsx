@@ -1,9 +1,10 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { ShoppingCart, Package, History, Settings } from "lucide-react";
+import { ShoppingCart, Package, History, Ticket, Settings } from "lucide-react";
 
 const tabs = [
   { to: "/", label: "ขาย", icon: ShoppingCart },
   { to: "/history", label: "ประวัติ", icon: History },
+  { to: "/coupons", label: "คูปอง", icon: Ticket },
   { to: "/settings", label: "ตั้งค่า", icon: Settings },
 ] as const;
 
@@ -14,7 +15,7 @@ export function BottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 backdrop-blur"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="mx-auto grid max-w-md grid-cols-3">
+      <div className="mx-auto grid max-w-md grid-cols-4">
         {tabs.map((t) => {
           const active =
             t.to === "/" ? pathname === "/" : pathname === t.to || pathname.startsWith(t.to + "/");
