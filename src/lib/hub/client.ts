@@ -111,6 +111,15 @@ export type ShiftRow = {
   note?: string | null;
 };
 
+export type RedemptionLookup = {
+  id: number;
+  code: string;
+  customer_name: string;
+  customer_id: number | null;
+  promotion_id: number | null;
+  max_free_value: number | null;
+};
+
 export type CheckoutRequirement = { material_id: string; qty: number; note?: string };
 export type CheckoutSaleRow = Record<string, unknown>;
 export type CheckoutPayload = {
@@ -164,4 +173,11 @@ export const hub = {
     ),
   checkoutPos: (payload: CheckoutPayload) =>
     req<CheckoutSaleRow[] | { duplicate: true }>("POST", "/api/checkout/pos", payload),
+  redemptionLookup: (code: string) =>
+    req<RedemptionLookup>("GET", `/api/redemption/${encodeURIComponent(code)}`),
+  redemptionUse: (code: string) =>
+    req<{ code: string; customer_name: string }>(
+      "POST",
+      `/api/redemption/${encodeURIComponent(code)}/use`,
+    ),
 };
