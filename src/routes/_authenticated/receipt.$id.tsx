@@ -48,8 +48,29 @@ function ReceiptPage() {
   const saveReceiptImage = async () => {
     if (!receiptRef.current || saving) return;
     setSaving(true);
+    // Capture a hidden clone pinned to a generous fixed width instead of the
+    // live node. modern-screenshot can't read the Google Fonts stylesheet's
+    // CSSOM (it's cross-origin without a matching `crossorigin` attribute),
+    // so its custom @font-face embedding silently fails and the capture
+    // falls back to a wider generic font — on a narrow phone viewport that's
+    // enough to wrap labels that fit on one line on screen. Extra width
+    // removes the ambiguity regardless of which font actually gets embedded.
+    // The clone must stay clipped via a zero-size `overflow: hidden`
+    // wrapper, not shoved off-screen with a huge negative offset — the
+    // latter makes modern-screenshot render an empty canvas.
+    const clone = receiptRef.current.cloneNode(true) as HTMLDivElement;
+    clone.style.width = "400px";
+    const captureHost = document.createElement("div");
+    captureHost.style.position = "absolute";
+    captureHost.style.top = "0";
+    captureHost.style.left = "0";
+    captureHost.style.width = "0";
+    captureHost.style.height = "0";
+    captureHost.style.overflow = "hidden";
+    captureHost.appendChild(clone);
+    document.body.appendChild(captureHost);
     try {
-      const blob = await domToBlob(receiptRef.current, { scale: 2, backgroundColor: "#ffffff" });
+      const blob = await domToBlob(clone, { scale: 2, backgroundColor: "#ffffff" });
       const file = new File([blob], `ใบเสร็จ-${order.orderNo}.png`, { type: "image/png" });
 
       // Prefer the native share sheet on phones — it offers "Save Image" to
@@ -72,6 +93,7 @@ function ReceiptPage() {
       if (e instanceof DOMException && e.name === "AbortError") return;
       toast.error("บันทึกรูปใบเสร็จไม่สำเร็จ");
     } finally {
+      captureHost.remove();
       setSaving(false);
     }
   };
@@ -85,13 +107,13 @@ function ReceiptPage() {
           <div className="grid h-16 w-16 place-items-center rounded-full bg-success/10 text-success">
             <CheckCircle2 className="h-9 w-9" />
           </div>
-          <h1 className="text-xl font-bold">ชำระเงินสำเร็จ</h1>
+          <h1 className="text-xl font-bold whitespace-nowrap">ชำระเงินสำเร็จ</h1>
         </div>
 
         <div className="rounded-2xl border border-border bg-card p-5">
-          <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-            <span>บิล #{order.orderNo}</span>
-            <span>
+          <div className="mb-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="whitespace-nowrap">บิล #{order.orderNo}</span>
+            <span className="whitespace-nowrap">
               {new Date(order.date).toLocaleDateString("th-TH", {
                 day: "numeric",
                 month: "long",
@@ -134,13 +156,15 @@ function ReceiptPage() {
 
         {claim && (
           <div className="mt-4 rounded-2xl border border-border bg-card p-5 text-center">
-            <p className="text-sm font-semibold">สะสม {claim.points} แต้ม</p>
+            <p className="text-sm font-semibold whitespace-nowrap">สะสม {claim.points} แต้ม</p>
             <img
               src={claim.qrUrl}
               alt="QR รับแต้มสะสม"
               className="mx-auto mt-3 h-40 w-40 rounded-xl border border-border"
             />
-            <p className="mt-3 text-lg font-bold tracking-[0.3em]">{claim.code}</p>
+            <p className="mt-3 text-lg font-bold tracking-[0.3em] whitespace-nowrap">
+              {claim.code}
+            </p>
             <p className="mt-2 text-xs text-muted-foreground">
               แสกน QR หรือกรอกรหัสที่หน้าสะสมแต้มของลูกค้าเพื่อรับแต้ม
             </p>
@@ -180,10 +204,10 @@ function ReceiptPage() {
 function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div
-      className={`flex justify-between ${bold ? "text-base font-bold" : "text-muted-foreground"}`}
+      className={`flex justify-between gap-2 ${bold ? "text-base font-bold" : "text-muted-foreground"}`}
     >
-      <span>{label}</span>
-      <span className={bold ? "text-foreground" : ""}>{value}</span>
+      <span className="whitespace-nowrap">{label}</span>
+      <span className={`whitespace-nowrap ${bold ? "text-foreground" : ""}`}>{value}</span>
     </div>
   );
 }
