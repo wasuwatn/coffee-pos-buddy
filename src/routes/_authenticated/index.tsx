@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
-import { useCatalog, categoryColor, type MenuItem } from "@/lib/hub/catalog";
-import { deriveContainers, deriveSweetness } from "@/lib/hub/pos-helpers";
+import {
+  useCatalog,
+  categoryColor,
+  parseModifierCategories,
+  type MenuItem,
+} from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
-import { useCart, formatTHB, type CartItem } from "@/lib/cart-store";
+import { useCart, formatTHB, type CartItem, type SelectedModifier } from "@/lib/cart-store";
 import { ShoppingBag, Sparkles, Plus, Minus, X } from "lucide-react";
 import { CartSheet } from "@/components/cart-sheet";
 
@@ -160,48 +164,67 @@ function ProductOptionModal({
   onAdd: (item: Omit<CartItem, "qty" | "cartItemId">, qty: number) => void;
 }) {
   const variants = catalog.childmenu.filter((c) => c.menu_name === product.name);
-  const containers = deriveContainers(catalog.addons);
-  const sweetnessLevels = deriveSweetness(catalog.addons);
-  const extraAddons = catalog.addons.filter((a) => (a.kind || "extra") === "extra");
+  const categories = useMemo(() => parseModifierCategories(catalog.addons), [catalog.addons]);
 
   const [childId, setChildId] = useState<string | null>(variants[0]?.id ?? null);
-  const [container, setContainer] = useState<string>(containers[0]?.value ?? "Ice");
-  const [sweetness, setSweetness] = useState<string>(sweetnessLevels[0]?.value ?? "");
-  const [addonNames, setAddonNames] = useState<string[]>([]);
+  // categoryId -> selected option names (single-select holds 0-1 entries)
+  const [selections, setSelections] = useState<Record<number, string[]>>({});
   const [qty, setQty] = useState(1);
 
   useEffect(() => {
     setChildId(variants[0]?.id ?? null);
-    setContainer(containers[0]?.value ?? "Ice");
-    setSweetness(sweetnessLevels[0]?.value ?? "");
-    setAddonNames([]);
+    // Pre-select the first option of each required (single-select) category,
+    // same default-friendly behavior the old fixed container/sweetness
+    // pickers had — multi-select categories start empty.
+    const defaults: Record<number, string[]> = {};
+    categories.forEach((cat) => {
+      if (cat.mode === "single" && cat.options[0]) defaults[cat.id] = [cat.options[0].name];
+    });
+    setSelections(defaults);
     setQty(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product.id]);
+  }, [product.id, categories]);
 
   const selectedVariant = variants.find((v) => String(v.id) === String(childId));
-  const containerAdj = containers.find((c) => c.value === container)?.adj ?? 0;
-  const sweetnessAdj = sweetnessLevels.find((s) => s.value === sweetness)?.adj ?? 0;
-  const addonPrice = addonNames.reduce(
-    (n, name) => n + Number(catalog.addons.find((a) => a.name === name)?.price_change ?? 0),
-    0,
+
+  const selectSingle = (categoryId: number, optionName: string) => {
+    setSelections((prev) => ({ ...prev, [categoryId]: [optionName] }));
+  };
+  const toggleMulti = (categoryId: number, optionName: string) => {
+    setSelections((prev) => {
+      const current = prev[categoryId] ?? [];
+      const next = current.includes(optionName)
+        ? current.filter((n) => n !== optionName)
+        : [...current, optionName];
+      return { ...prev, [categoryId]: next };
+    });
+  };
+
+  const modifiers: SelectedModifier[] = categories.map((cat) => {
+    const names = selections[cat.id] ?? [];
+    const priceChange = names.reduce(
+      (n, name) => n + Number(cat.options.find((o) => o.name === name)?.price_change ?? 0),
+      0,
+    );
+    return {
+      categoryId: cat.id,
+      categoryName: cat.name,
+      mode: cat.mode,
+      optionNames: names,
+      priceChange,
+    };
+  });
+  const missingRequired = categories.some(
+    (cat) => cat.mode === "single" && (selections[cat.id] ?? []).length === 0,
   );
+
   const unitPrice =
     Number(product.front_price) +
     Number(selectedVariant?.price_change ?? 0) +
-    containerAdj +
-    sweetnessAdj +
-    addonPrice;
+    modifiers.reduce((n, m) => n + m.priceChange, 0);
 
-  const toggleAddon = (name: string) => {
-    setAddonNames((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-    );
-  };
-
-  const containerLabel = containers.find((c) => c.value === container)?.label ?? container;
   const displayName = selectedVariant ? `${product.name} (${selectedVariant.name})` : product.name;
-  const options = [selectedVariant?.name, containerLabel, sweetness, ...addonNames].filter(
+  const options = [selectedVariant?.name, ...modifiers.flatMap((m) => m.optionNames)].filter(
     Boolean,
   ) as string[];
 
@@ -243,67 +266,56 @@ function ProductOptionModal({
               </OptionGroup>
             )}
 
-            <OptionGroup title="ภาชนะ">
-              {containers.map((c) => (
-                <PillButton
-                  key={c.value}
-                  active={container === c.value}
-                  onClick={() => setContainer(c.value)}
-                >
-                  {c.label}
-                  {c.adj !== 0 && (
-                    <span className="ml-1 text-xs opacity-80">
-                      ({c.adj > 0 ? "+" : ""}
-                      {formatTHB(c.adj)})
-                    </span>
-                  )}
-                </PillButton>
-              ))}
-            </OptionGroup>
-
-            <OptionGroup title="ความหวาน">
-              {sweetnessLevels.map((s) => (
-                <PillButton key={s.value} active={sweetness === s.value} onClick={() => setSweetness(s.value)}>
-                  {s.label}
-                  {s.adj !== 0 && (
-                    <span className="ml-1 text-xs opacity-80">
-                      ({s.adj > 0 ? "+" : ""}
-                      {formatTHB(s.adj)})
-                    </span>
-                  )}
-                </PillButton>
-              ))}
-            </OptionGroup>
-
-            {extraAddons.length > 0 && (
-              <div>
-                <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
-                  ท็อปปิ้ง / Add-on
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {extraAddons.map((a) => {
-                    const isSelected = addonNames.includes(a.name);
+            {categories.map((cat) =>
+              cat.mode === "single" ? (
+                <OptionGroup key={cat.id} title={cat.name}>
+                  {cat.options.map((o) => {
+                    const active = (selections[cat.id] ?? []).includes(o.name);
                     return (
-                      <button
-                        key={a.id}
-                        onClick={() => toggleAddon(a.name)}
-                        className={`flex w-full items-center justify-between rounded-xl border-2 px-4 py-3 text-sm font-medium transition ${
-                          isSelected
-                            ? "border-primary bg-primary/5 text-primary"
-                            : "border-border bg-card text-foreground hover:border-primary/50"
-                        }`}
+                      <PillButton
+                        key={o.id}
+                        active={active}
+                        onClick={() => selectSingle(cat.id, o.name)}
                       >
-                        <span>{a.name}</span>
-                        {Number(a.price_change) > 0 && (
-                          <span className="font-semibold">
-                            +{formatTHB(Number(a.price_change))}
+                        {o.name}
+                        {Number(o.price_change) !== 0 && (
+                          <span className="ml-1 text-xs opacity-80">
+                            ({Number(o.price_change) > 0 ? "+" : ""}
+                            {formatTHB(Number(o.price_change))})
                           </span>
                         )}
-                      </button>
+                      </PillButton>
                     );
                   })}
+                </OptionGroup>
+              ) : (
+                <div key={cat.id}>
+                  <h3 className="mb-3 text-sm font-semibold text-muted-foreground">{cat.name}</h3>
+                  <div className="flex flex-col gap-2">
+                    {cat.options.map((o) => {
+                      const isSelected = (selections[cat.id] ?? []).includes(o.name);
+                      return (
+                        <button
+                          key={o.id}
+                          onClick={() => toggleMulti(cat.id, o.name)}
+                          className={`flex w-full items-center justify-between rounded-xl border-2 px-4 py-3 text-sm font-medium transition ${
+                            isSelected
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border bg-card text-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          <span>{o.name}</span>
+                          {Number(o.price_change) > 0 && (
+                            <span className="font-semibold">
+                              +{formatTHB(Number(o.price_change))}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ),
             )}
           </div>
 
@@ -328,7 +340,8 @@ function ProductOptionModal({
             </div>
 
             <button
-              className="h-12 w-full rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-sm transition active:scale-[0.98]"
+              disabled={missingRequired}
+              className="h-12 w-full rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-sm transition active:scale-[0.98] disabled:opacity-50"
               onClick={() =>
                 onAdd(
                   {
@@ -338,9 +351,7 @@ function ProductOptionModal({
                     color: categoryColor(product.category, catalog.categories),
                     options: options.length > 0 ? options : undefined,
                     childId,
-                    container,
-                    sweetness,
-                    addonNames,
+                    modifiers,
                   },
                   qty,
                 )

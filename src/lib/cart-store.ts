@@ -1,5 +1,15 @@
 import { create } from "zustand";
 
+// One selected modifier category for a cart line — mode "single" has at
+// most one entry in optionNames, "multi" can have several.
+export type SelectedModifier = {
+  categoryId: number;
+  categoryName: string;
+  mode: "single" | "multi";
+  optionNames: string[];
+  priceChange: number; // sum of the selected options' price_change
+};
+
 // One CartItem == one line the customer wants N of, all sharing the same
 // customization. At checkout each is expanded into N salefront rows (one
 // row per cup — see checkout.tsx), matching how SMA08's own pos.html builds
@@ -8,15 +18,13 @@ export type CartItem = {
   cartItemId: string;
   menuId: string; // menuname.id
   name: string; // display name shown in cart/receipt (includes variant if any)
-  price: number; // unit price: menu front_price + variant price_change + container adj + addons
+  price: number; // unit price: menu front_price + variant price_change + modifier price changes
   color?: string | null;
   imageUrl?: string | null;
   qty: number;
-  options?: string[]; // display strings for cart/receipt (variant, container, sweetness, add-ons)
-  childId?: string | null; // childmenu.id (variant) — drives stock requirements
-  container: string; // Ice | Hot | Bottle
-  sweetness: string;
-  addonNames: string[];
+  options?: string[]; // display strings for cart/receipt (variant + every selected modifier)
+  childId?: string | null; // childmenu.id (variant)
+  modifiers: SelectedModifier[];
 };
 
 type CartState = {
@@ -31,9 +39,11 @@ type CartState = {
 };
 
 const dedupeKey = (i: Omit<CartItem, "qty" | "cartItemId">) =>
-  [i.menuId, i.childId ?? "", i.container, i.sweetness, [...i.addonNames].sort().join("|")].join(
-    "::",
-  );
+  [
+    i.menuId,
+    i.childId ?? "",
+    ...i.modifiers.map((m) => `${m.categoryId}:${[...m.optionNames].sort().join(",")}`).sort(),
+  ].join("::");
 
 export const useCart = create<CartState>((set, get) => ({
   items: [],

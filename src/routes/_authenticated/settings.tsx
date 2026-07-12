@@ -2,7 +2,20 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hub, HubApiError } from "@/lib/hub/client";
-import { useCatalog, type MenuItem, type Addon, type Category, type ChildMenu, type Material } from "@/lib/hub/catalog";
+import {
+  useCatalog,
+  parseModifierCategories,
+  isLegacyAddon,
+  categoryKind,
+  optionKind,
+  type MenuItem,
+  type Addon,
+  type Category,
+  type ChildMenu,
+  type Material,
+  type ModifierCategory,
+  type ModifierMode,
+} from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { formatTHB } from "@/lib/cart-store";
 import {
@@ -24,7 +37,8 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
-type ActivePage = "main" | "shop" | "shift" | "password" | "menu" | "category" | "modifier" | "childmenu";
+type ActivePage =
+  "main" | "shop" | "shift" | "password" | "menu" | "category" | "modifier" | "childmenu";
 
 function SettingsPage() {
   const navigate = useNavigate();
@@ -52,9 +66,7 @@ function SettingsPage() {
           <Row label="ที่อยู่" value={s?.shop_address || "—"} />
           <Row label="โทรศัพท์" value={s?.shop_phone || "—"} />
           <Row label="เลข PromptPay" value={s?.promptpay_id || "—"} />
-          <p className="pt-2 text-xs text-muted-foreground">
-            แก้ไขข้อมูลร้านได้ที่แอป Mother
-          </p>
+          <p className="pt-2 text-xs text-muted-foreground">แก้ไขข้อมูลร้านได้ที่แอป Mother</p>
         </section>
       </SubPage>
     );
@@ -443,7 +455,10 @@ function ChangePasswordSection({ onDone }: { onDone: () => void }) {
 // delete list instead of retyping a category name per menu item.
 function CategoryManageSection() {
   const qc = useQueryClient();
-  const list = useQuery({ queryKey: ["hub-categories"], queryFn: () => hub.list<Category>("categories") });
+  const list = useQuery({
+    queryKey: ["hub-categories"],
+    queryFn: () => hub.list<Category>("categories"),
+  });
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<Category | null>(null);
   const [busy, setBusy] = useState(false);
@@ -513,7 +528,11 @@ function CategoryManageSection() {
           </button>
         </div>
         {editing && (
-          <button type="button" onClick={cancelEdit} className="text-xs font-medium text-muted-foreground underline">
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className="text-xs font-medium text-muted-foreground underline"
+          >
             ยกเลิกแก้ไข
           </button>
         )}
@@ -529,10 +548,19 @@ function CategoryManageSection() {
             <div key={c.id} className="flex items-center justify-between px-4 py-3">
               <span className="text-sm font-medium">{c.name}</span>
               <div className="flex gap-3">
-                <button onClick={() => { setEditing(c); setName(c.name); }} className="text-xs font-semibold text-primary">
+                <button
+                  onClick={() => {
+                    setEditing(c);
+                    setName(c.name);
+                  }}
+                  className="text-xs font-semibold text-primary"
+                >
                   แก้ไข
                 </button>
-                <button onClick={() => remove(c)} className="text-xs font-semibold text-destructive">
+                <button
+                  onClick={() => remove(c)}
+                  className="text-xs font-semibold text-destructive"
+                >
                   ลบ
                 </button>
               </div>
@@ -544,51 +572,280 @@ function CategoryManageSection() {
   );
 }
 
-// ---- Modifier management (same addons table Recipes.jsx's "Add-on Options"
-// manages in the Mother app — this is just another entry point onto it) ------
-const MODIFIER_KIND_LABEL: Record<string, string> = {
-  extra: "Extra (เลือกได้หลายอัน ไม่บังคับ)",
-  container: "ภาชนะ (เลือก 1 อัน บังคับ)",
-  sweetness: "ความหวาน (เลือก 1 อัน บังคับ)",
-};
+// ---- Modifier management -----------------------------------------------
+// Still the same "addons" table Recipes.jsx's "Add-on Options" manages in
+// the Mother app, but now organized into user-created categories (e.g.
+// "ความหวาน") each with its own single/multi-select mode and option list.
+// There's no dedicated categories table in the hub, so this overloads the
+// existing `kind` column via catalog.ts's modcat:/modopt: tags — see the
+// comment on the `Addon` type there. The old fixed container/sweetness/
+// extra rows get one-time migrated into three such categories.
+const LEGACY_MIGRATION_PLAN: { kind: string; label: string; mode: ModifierMode }[] = [
+  { kind: "container", label: "ภาชนะ", mode: "single" },
+  { kind: "sweetness", label: "ความหวาน", mode: "single" },
+  { kind: "extra", label: "ของเพิ่ม", mode: "multi" },
+];
 
 function ModifierManageSection() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["hub-addons"], queryFn: () => hub.list<Addon>("addons") });
-  const [name, setName] = useState("");
-  const [priceChange, setPriceChange] = useState("");
-  const [kind, setKind] = useState("extra");
-  const [editing, setEditing] = useState<Addon | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["hub-addons"] });
     qc.invalidateQueries({ queryKey: ["hub-catalog"] });
   };
 
-  const cancelEdit = () => {
-    setEditing(null);
-    setName("");
-    setPriceChange("");
-    setKind("extra");
-  };
+  const addons = list.data ?? [];
+  const categories = parseModifierCategories(addons);
+  const selected = categories.find((c) => c.id === selectedCategoryId) ?? null;
 
-  const submit = async (e: React.FormEvent) => {
+  if (selected) {
+    return (
+      <ModifierCategoryDetail
+        category={selected}
+        onBack={() => setSelectedCategoryId(null)}
+        onChanged={refresh}
+        onDeleted={() => {
+          setSelectedCategoryId(null);
+          refresh();
+        }}
+      />
+    );
+  }
+
+  return (
+    <ModifierCategoryList
+      addons={addons}
+      categories={categories}
+      loading={list.isLoading}
+      onOpen={setSelectedCategoryId}
+      onChanged={refresh}
+    />
+  );
+}
+
+function ModifierCategoryList({
+  addons,
+  categories,
+  loading,
+  onOpen,
+  onChanged,
+}: {
+  addons: Addon[];
+  categories: ModifierCategory[];
+  loading: boolean;
+  onOpen: (id: number) => void;
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [mode, setMode] = useState<ModifierMode>("single");
+  const [busy, setBusy] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+
+  const legacyRows = addons.filter(isLegacyAddon);
+
+  const createCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
     setBusy(true);
     try {
-      const payload = { name: trimmed, price_change: Number(priceChange) || 0, kind };
-      if (editing) {
-        await hub.update("addons", editing.id, payload);
-        toast.success("แก้ไข modifier แล้ว");
+      const created = await hub.insert<Addon>("addons", {
+        name: trimmed,
+        price_change: 0,
+        kind: categoryKind(mode),
+      });
+      toast.success("สร้างหมวดหมู่แล้ว");
+      setName("");
+      setMode("single");
+      onChanged();
+      if (created?.id != null) onOpen(created.id);
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "สร้างหมวดหมู่ไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const migrateLegacy = async () => {
+    if (!confirm("ย้ายตัวเลือกแบบเก่า (ภาชนะ/ความหวาน/ของเพิ่ม) เข้าสู่ระบบหมวดหมู่ใหม่?")) return;
+    setMigrating(true);
+    try {
+      for (const plan of LEGACY_MIGRATION_PLAN) {
+        const rows = legacyRows.filter((a) => (a.kind || "extra") === plan.kind);
+        if (rows.length === 0) continue;
+        const created = await hub.insert<Addon>("addons", {
+          name: plan.label,
+          price_change: 0,
+          kind: categoryKind(plan.mode),
+        });
+        for (const row of rows) {
+          await hub.update("addons", row.id, { kind: optionKind(created.id) });
+        }
+      }
+      toast.success("ย้ายข้อมูลเรียบร้อย");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "ย้ายข้อมูลไม่สำเร็จ");
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {legacyRows.length > 0 && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <p className="text-sm font-semibold">พบตัวเลือกแบบเก่า {legacyRows.length} รายการ</p>
+          <p className="mt-1 text-xs">
+            ภาชนะ/ความหวาน/ของเพิ่มแบบเดิมยังไม่อยู่ในระบบหมวดหมู่ใหม่
+            กดย้ายเพื่อจัดกลุ่มเป็นหมวดหมู่โดยอัตโนมัติ (ตัวเลือกเดิมและราคาจะยังเหมือนเดิมทุกอย่าง)
+          </p>
+          <button
+            disabled={migrating}
+            onClick={migrateLegacy}
+            className="mt-3 h-10 rounded-xl bg-amber-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {migrating ? "กำลังย้าย..." : "ย้ายข้อมูล"}
+          </button>
+        </div>
+      )}
+
+      <form
+        onSubmit={createCategory}
+        className="rounded-2xl border border-border bg-card p-4 space-y-3"
+      >
+        <label className="mb-1.5 block text-sm font-medium">สร้างหมวดหมู่ใหม่</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="เช่น ความหวาน"
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <ModeButton active={mode === "single"} onClick={() => setMode("single")}>
+            กดได้แค่ 1
+          </ModeButton>
+          <ModeButton active={mode === "multi"} onClick={() => setMode("multi")}>
+            กดได้มากกว่า 1
+          </ModeButton>
+        </div>
+        <button
+          type="submit"
+          disabled={busy || !name.trim()}
+          className="h-11 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {busy ? "…" : "สร้างหมวดหมู่"}
+        </button>
+      </form>
+
+      <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+        {loading ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+        ) : categories.length === 0 ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มีหมวดหมู่ modifier</p>
+        ) : (
+          categories.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onOpen(c.id)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left transition active:bg-muted"
+            >
+              <div>
+                <p className="text-sm font-medium">{c.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {c.mode === "single" ? "กดได้แค่ 1" : "กดได้มากกว่า 1"} · {c.options.length}{" "}
+                  ตัวเลือก
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground/50" />
+            </button>
+          ))
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ModifierCategoryDetail({
+  category,
+  onBack,
+  onChanged,
+  onDeleted,
+}: {
+  category: ModifierCategory;
+  onBack: () => void;
+  onChanged: () => void;
+  onDeleted: () => void;
+}) {
+  const [name, setName] = useState(category.name);
+  const [mode, setMode] = useState<ModifierMode>(category.mode);
+  const [optionName, setOptionName] = useState("");
+  const [optionPrice, setOptionPrice] = useState("");
+  const [editingOption, setEditingOption] = useState<Addon | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const saveCategory = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      await hub.update("addons", category.id, { name: trimmed, kind: categoryKind(mode) });
+      toast.success("บันทึกหมวดหมู่แล้ว");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteCategory = async () => {
+    if (
+      !confirm(
+        `ลบหมวดหมู่ "${category.name}" พร้อมตัวเลือกทั้งหมด (${category.options.length} รายการ)?`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      for (const o of category.options) await hub.remove("addons", o.id);
+      await hub.remove("addons", category.id);
+      toast.success("ลบหมวดหมู่แล้ว");
+      onDeleted();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "ลบไม่สำเร็จ");
+      setBusy(false);
+    }
+  };
+
+  const cancelOptionEdit = () => {
+    setEditingOption(null);
+    setOptionName("");
+    setOptionPrice("");
+  };
+
+  const submitOption = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = optionName.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      const payload = {
+        name: trimmed,
+        price_change: Number(optionPrice) || 0,
+        kind: optionKind(category.id),
+      };
+      if (editingOption) {
+        await hub.update("addons", editingOption.id, payload);
+        toast.success("แก้ไขตัวเลือกแล้ว");
       } else {
         await hub.insert("addons", payload);
-        toast.success("เพิ่ม modifier แล้ว");
+        toast.success("เพิ่มตัวเลือกแล้ว");
       }
-      cancelEdit();
-      refresh();
+      cancelOptionEdit();
+      onChanged();
     } catch (e2) {
       toast.error(e2 instanceof HubApiError ? e2.message : "บันทึกไม่สำเร็จ");
     } finally {
@@ -596,12 +853,12 @@ function ModifierManageSection() {
     }
   };
 
-  const remove = async (a: Addon) => {
-    if (!confirm(`ลบ modifier "${a.name}"?`)) return;
+  const removeOption = async (o: Addon) => {
+    if (!confirm(`ลบตัวเลือก "${o.name}"?`)) return;
     try {
-      await hub.remove("addons", a.id);
-      toast.success("ลบ modifier แล้ว");
-      refresh();
+      await hub.remove("addons", o.id);
+      toast.success("ลบตัวเลือกแล้ว");
+      onChanged();
     } catch (e) {
       toast.error(e instanceof HubApiError ? e.message : "ลบไม่สำเร็จ");
     }
@@ -609,47 +866,84 @@ function ModifierManageSection() {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 text-sm font-semibold text-primary"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        กลับไปหมวดหมู่ทั้งหมด
+      </button>
+
+      <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        <label className="mb-1.5 block text-sm font-medium">ชื่อหมวดหมู่</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <ModeButton active={mode === "single"} onClick={() => setMode("single")}>
+            กดได้แค่ 1
+          </ModeButton>
+          <ModeButton active={mode === "multi"} onClick={() => setMode("multi")}>
+            กดได้มากกว่า 1
+          </ModeButton>
+        </div>
+        <div className="flex gap-2">
+          <button
+            disabled={busy || !name.trim()}
+            onClick={saveCategory}
+            className="h-11 flex-1 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            บันทึก
+          </button>
+          <button
+            disabled={busy}
+            onClick={deleteCategory}
+            className="h-11 rounded-xl border border-destructive px-4 text-sm font-semibold text-destructive disabled:opacity-50"
+          >
+            ลบหมวดหมู่
+          </button>
+        </div>
+      </div>
+
+      <form
+        onSubmit={submitOption}
+        className="rounded-2xl border border-border bg-card p-4 space-y-3"
+      >
         <label className="mb-1.5 block text-sm font-medium">
-          {editing ? `แก้ไข "${editing.name}"` : "Modifier ใหม่"}
+          {editingOption ? `แก้ไขตัวเลือก "${editingOption.name}"` : "เพิ่มตัวเลือก"}
         </label>
         <div className="flex gap-2">
           <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="เช่น เพิ่มไข่มุก"
+            value={optionName}
+            onChange={(e) => setOptionName(e.target.value)}
+            placeholder="เช่น ไม่หวาน"
             className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
           />
           <input
             type="number"
             inputMode="decimal"
-            value={priceChange}
-            onChange={(e) => setPriceChange(e.target.value)}
+            value={optionPrice}
+            onChange={(e) => setOptionPrice(e.target.value)}
             placeholder="+฿"
             className="h-11 w-24 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
           />
         </div>
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
-        >
-          {Object.entries(MODIFIER_KIND_LABEL).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
         <div className="flex gap-2">
           <button
             type="submit"
-            disabled={busy || !name.trim()}
+            disabled={busy || !optionName.trim()}
             className="h-11 flex-1 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
-            {busy ? "…" : editing ? "บันทึก" : "เพิ่ม"}
+            {busy ? "…" : editingOption ? "บันทึก" : "เพิ่ม"}
           </button>
-          {editing && (
-            <button type="button" onClick={cancelEdit} className="h-11 rounded-xl border border-border px-4 text-sm font-medium">
+          {editingOption && (
+            <button
+              type="button"
+              onClick={cancelOptionEdit}
+              className="h-11 rounded-xl border border-border px-4 text-sm font-medium"
+            >
               ยกเลิก
             </button>
           )}
@@ -657,27 +951,34 @@ function ModifierManageSection() {
       </form>
 
       <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
-        {list.isLoading ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
-        ) : (list.data ?? []).length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มี modifier</p>
+        {category.options.length === 0 ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">
+            ยังไม่มีตัวเลือกในหมวดหมู่นี้
+          </p>
         ) : (
-          (list.data ?? []).map((a) => (
-            <div key={a.id} className="flex items-center justify-between px-4 py-3">
+          category.options.map((o) => (
+            <div key={o.id} className="flex items-center justify-between px-4 py-3">
               <div>
-                <p className="text-sm font-medium">{a.name}</p>
+                <p className="text-sm font-medium">{o.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {MODIFIER_KIND_LABEL[a.kind || "extra"] || a.kind} · +{formatTHB(Number(a.price_change))}
+                  +{formatTHB(Number(o.price_change))}
                 </p>
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => { setEditing(a); setName(a.name); setPriceChange(String(a.price_change)); setKind(a.kind || "extra"); }}
+                  onClick={() => {
+                    setEditingOption(o);
+                    setOptionName(o.name);
+                    setOptionPrice(String(o.price_change));
+                  }}
                   className="text-xs font-semibold text-primary"
                 >
                   แก้ไข
                 </button>
-                <button onClick={() => remove(a)} className="text-xs font-semibold text-destructive">
+                <button
+                  onClick={() => removeOption(o)}
+                  className="text-xs font-semibold text-destructive"
+                >
                   ลบ
                 </button>
               </div>
@@ -686,6 +987,30 @@ function ModifierManageSection() {
         )}
       </section>
     </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-11 rounded-xl border-2 text-sm font-medium transition ${
+        active
+          ? "border-primary bg-primary/5 text-primary"
+          : "border-border bg-card text-foreground hover:border-primary/50"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -702,12 +1027,24 @@ function nextMenuId(existing: MenuItem[]) {
   return `MN${String(max + 1).padStart(3, "0")}`;
 }
 
-const blankMenuForm = { category: "", name: "", front_price: "", delivery_price: "", status: "Active" as const };
+const blankMenuForm = {
+  category: "",
+  name: "",
+  front_price: "",
+  delivery_price: "",
+  status: "Active" as const,
+};
 
 function MenuManageSection() {
   const qc = useQueryClient();
-  const menuList = useQuery({ queryKey: ["hub-menuname"], queryFn: () => hub.list<MenuItem>("menuname") });
-  const categoryList = useQuery({ queryKey: ["hub-categories"], queryFn: () => hub.list<Category>("categories") });
+  const menuList = useQuery({
+    queryKey: ["hub-menuname"],
+    queryFn: () => hub.list<MenuItem>("menuname"),
+  });
+  const categoryList = useQuery({
+    queryKey: ["hub-categories"],
+    queryFn: () => hub.list<Category>("categories"),
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<{
     category: string;
@@ -787,7 +1124,9 @@ function MenuManageSection() {
   return (
     <div className="space-y-4">
       <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
-        <label className="block text-sm font-medium">{editingId ? `แก้ไข "${form.name}"` : "เมนูใหม่"}</label>
+        <label className="block text-sm font-medium">
+          {editingId ? `แก้ไข "${form.name}"` : "เมนูใหม่"}
+        </label>
         <input
           value={form.name}
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -826,7 +1165,9 @@ function MenuManageSection() {
         </div>
         <select
           value={form.status}
-          onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as "Active" | "Inactive" }))}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, status: e.target.value as "Active" | "Inactive" }))
+          }
           className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
         >
           <option value="Active">Active</option>
@@ -841,7 +1182,11 @@ function MenuManageSection() {
             {busy ? "…" : editingId ? "บันทึก" : "เพิ่มเมนู"}
           </button>
           {editingId && (
-            <button type="button" onClick={cancelEdit} className="h-11 rounded-xl border border-border px-4 text-sm font-medium">
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="h-11 rounded-xl border border-border px-4 text-sm font-medium"
+            >
               ยกเลิก
             </button>
           )}
@@ -873,7 +1218,10 @@ function MenuManageSection() {
                 <button onClick={() => startEdit(m)} className="text-xs font-semibold text-primary">
                   แก้ไข
                 </button>
-                <button onClick={() => remove(m)} className="text-xs font-semibold text-destructive">
+                <button
+                  onClick={() => remove(m)}
+                  className="text-xs font-semibold text-destructive"
+                >
                   ลบ
                 </button>
               </div>
@@ -895,9 +1243,18 @@ const blankChildForm = { name: "", category: "", material_id: "", qty_used: "1",
 function ChildMenuManageSection() {
   const qc = useQueryClient();
   const catalog = useCatalog(); // for packagingbom/matprepbom sets, already cached
-  const menuList = useQuery({ queryKey: ["hub-menuname"], queryFn: () => hub.list<MenuItem>("menuname") });
-  const materialList = useQuery({ queryKey: ["hub-materials"], queryFn: () => hub.list<Material>("materials") });
-  const childList = useQuery({ queryKey: ["hub-childmenu"], queryFn: () => hub.list<ChildMenu>("childmenu") });
+  const menuList = useQuery({
+    queryKey: ["hub-menuname"],
+    queryFn: () => hub.list<MenuItem>("menuname"),
+  });
+  const materialList = useQuery({
+    queryKey: ["hub-materials"],
+    queryFn: () => hub.list<Material>("materials"),
+  });
+  const childList = useQuery({
+    queryKey: ["hub-childmenu"],
+    queryFn: () => hub.list<ChildMenu>("childmenu"),
+  });
 
   const [selectedMenuId, setSelectedMenuId] = useState("");
   const [editingId, setEditingId] = useState<ChildMenu["id"] | null>(null);
@@ -907,13 +1264,19 @@ function ChildMenuManageSection() {
   const materials = materialList.data ?? [];
   const packagingbom = catalog.data?.packagingbom ?? [];
   const matprepbom = catalog.data?.matprepbom ?? [];
-  const ingredientCategories = Array.from(new Set(materials.map((m) => m.category).filter(Boolean)));
+  const ingredientCategories = Array.from(
+    new Set(materials.map((m) => m.category).filter(Boolean)),
+  );
   const allCategories = [...ingredientCategories, "Packaging Sets", "Mat Prep Sets"];
 
   const itemsForCategory = (cat: string): { id: string; label: string }[] => {
-    if (cat === "Packaging Sets") return packagingbom.map((p) => ({ id: p.id, label: `[Set] ${p.name}` }));
-    if (cat === "Mat Prep Sets") return matprepbom.map((p) => ({ id: p.id, label: `[Prep] ${p.name}` }));
-    return materials.filter((m) => m.category === cat).map((m) => ({ id: m.id, label: `${m.item} [${m.unit}]` }));
+    if (cat === "Packaging Sets")
+      return packagingbom.map((p) => ({ id: p.id, label: `[Set] ${p.name}` }));
+    if (cat === "Mat Prep Sets")
+      return matprepbom.map((p) => ({ id: p.id, label: `[Prep] ${p.name}` }));
+    return materials
+      .filter((m) => m.category === cat)
+      .map((m) => ({ id: m.id, label: `${m.item} [${m.unit}]` }));
   };
   const categoryOfMaterial = (materialId: string) => {
     if (!materialId) return "";
@@ -1018,9 +1381,14 @@ function ChildMenuManageSection() {
 
       {selectedMenu && (
         <>
-          <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+          <form
+            onSubmit={submit}
+            className="rounded-2xl border border-border bg-card p-4 space-y-3"
+          >
             <label className="block text-sm font-medium">
-              {editingId != null ? `แก้ไข "${form.name}"` : `ตัวเลือกใหม่สำหรับ ${selectedMenu.name}`}
+              {editingId != null
+                ? `แก้ไข "${form.name}"`
+                : `ตัวเลือกใหม่สำหรับ ${selectedMenu.name}`}
             </label>
             <input
               value={form.name}
@@ -1030,7 +1398,9 @@ function ChildMenuManageSection() {
             />
             <select
               value={form.category}
-              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value, material_id: "" }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, category: e.target.value, material_id: "" }))
+              }
               className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
             >
               <option value="">-- หมวดวัตถุดิบ --</option>
@@ -1046,7 +1416,9 @@ function ChildMenuManageSection() {
               onChange={(e) => setForm((f) => ({ ...f, material_id: e.target.value }))}
               className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
             >
-              <option value="">{form.category ? "-- เลือกวัตถุดิบ --" : "-- เลือกหมวดก่อน --"}</option>
+              <option value="">
+                {form.category ? "-- เลือกวัตถุดิบ --" : "-- เลือกหมวดก่อน --"}
+              </option>
               {itemsForCategory(form.category).map((it) => (
                 <option key={it.id} value={it.id}>
                   {it.label}
@@ -1096,22 +1468,31 @@ function ChildMenuManageSection() {
             {childList.isLoading ? (
               <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
             ) : rowsForMenu.length === 0 ? (
-              <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มีตัวเลือกสำหรับเมนูนี้</p>
+              <p className="p-4 text-center text-sm text-muted-foreground">
+                ยังไม่มีตัวเลือกสำหรับเมนูนี้
+              </p>
             ) : (
               rowsForMenu.map((c) => (
                 <div key={c.id} className="flex items-center justify-between px-4 py-3">
                   <div>
                     <p className="text-sm font-medium">{c.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {materials.find((m) => m.id === c.material_id)?.item ?? c.material_id} · {c.qty_used}
+                      {materials.find((m) => m.id === c.material_id)?.item ?? c.material_id} ·{" "}
+                      {c.qty_used}
                       {Number(c.price_change) !== 0 && ` · +${formatTHB(Number(c.price_change))}`}
                     </p>
                   </div>
                   <div className="flex gap-3">
-                    <button onClick={() => startEdit(c)} className="text-xs font-semibold text-primary">
+                    <button
+                      onClick={() => startEdit(c)}
+                      className="text-xs font-semibold text-primary"
+                    >
                       แก้ไข
                     </button>
-                    <button onClick={() => remove(c)} className="text-xs font-semibold text-destructive">
+                    <button
+                      onClick={() => remove(c)}
+                      className="text-xs font-semibold text-destructive"
+                    >
                       ลบ
                     </button>
                   </div>

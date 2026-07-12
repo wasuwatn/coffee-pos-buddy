@@ -24,11 +24,55 @@ export type ChildMenu = {
   qty_used: number;
   price_change: number;
 };
-// kind groups a modifier by role: 'container'/'sweetness' are each a
-// required, single-select choice per cup (sourced from server/db.js's
-// addons table); 'extra'/undefined is the original optional, multi-select
-// add-on list (e.g. "Extra pearls") — unchanged behavior.
+// kind used to be a closed 3-value enum (container/sweetness/extra —
+// undefined meant "extra"). It's now overloaded to also carry user-defined
+// modifier categories, since the hub has no dedicated categories table for
+// this: a "modcat:<single|multi>" row is a category shell (its `name` is
+// the category name, it's never itself sellable), and a "modopt:<catId>"
+// row is one option belonging to that category. Legacy container/sweetness/
+// extra rows get migrated into modcat/modopt rows the first time someone
+// opens Settings → Modifier (see settings.tsx's ModifierManageSection).
+// NOTE: this table is shared with the Mother app's Recipes.jsx "Add-on
+// Options" screen, which only knows the old 3-value enum — modcat/modopt
+// rows will show there as an unrecognized kind string.
 export type Addon = { id: number; name: string; price_change: number; kind?: string };
+export type ModifierMode = "single" | "multi";
+export type ModifierCategory = {
+  id: number;
+  name: string;
+  mode: ModifierMode;
+  options: Addon[];
+};
+
+const MODCAT_PREFIX = "modcat:";
+const MODOPT_PREFIX = "modopt:";
+
+export function isCategoryRow(a: Addon): boolean {
+  return (a.kind ?? "").startsWith(MODCAT_PREFIX);
+}
+export function isOptionRow(a: Addon): boolean {
+  return (a.kind ?? "").startsWith(MODOPT_PREFIX);
+}
+export function isLegacyAddon(a: Addon): boolean {
+  return !isCategoryRow(a) && !isOptionRow(a);
+}
+export function categoryKind(mode: ModifierMode): string {
+  return `${MODCAT_PREFIX}${mode}`;
+}
+export function optionKind(categoryId: number): string {
+  return `${MODOPT_PREFIX}${categoryId}`;
+}
+
+// Builds the category → options tree from the flat addons list. Options
+// whose category row got deleted (orphaned modopt rows) are dropped.
+export function parseModifierCategories(addons: Addon[]): ModifierCategory[] {
+  return addons.filter(isCategoryRow).map((c) => ({
+    id: c.id,
+    name: c.name,
+    mode: (c.kind === categoryKind("multi") ? "multi" : "single") as ModifierMode,
+    options: addons.filter((a) => a.kind === optionKind(c.id)),
+  }));
+}
 export type Category = { id: number; name: string };
 export type Material = { id: string; category: string; item: string; unit: string; status: string };
 export type SetBom = { id: string; name: string; items: string };
