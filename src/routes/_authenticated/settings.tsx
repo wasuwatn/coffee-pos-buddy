@@ -2,22 +2,35 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hub, HubApiError } from "@/lib/hub/client";
-import { useCatalog } from "@/lib/hub/catalog";
+import { useCatalog, type MenuItem, type Addon, type Category } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { formatTHB } from "@/lib/cart-store";
-import { LogOut, Store, User, ChevronRight, ArrowLeft, Clock, KeyRound } from "lucide-react";
+import {
+  LogOut,
+  Store,
+  User,
+  ChevronRight,
+  ArrowLeft,
+  Clock,
+  KeyRound,
+  Coffee,
+  Tag,
+  SlidersHorizontal,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
+type ActivePage = "main" | "shop" | "shift" | "password" | "menu" | "category" | "modifier";
+
 function SettingsPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useHubUser();
   const catalog = useCatalog();
-  const [activePage, setActivePage] = useState<"main" | "shop" | "shift" | "password">("main");
+  const [activePage, setActivePage] = useState<ActivePage>("main");
 
   const signOut = () => {
     qc.clear();
@@ -39,9 +52,33 @@ function SettingsPage() {
           <Row label="โทรศัพท์" value={s?.shop_phone || "—"} />
           <Row label="เลข PromptPay" value={s?.promptpay_id || "—"} />
           <p className="pt-2 text-xs text-muted-foreground">
-            แก้ไขข้อมูลร้าน เมนู หมวดหมู่ และส่วนขยายได้ที่แอป Mother
+            แก้ไขข้อมูลร้านได้ที่แอป Mother
           </p>
         </section>
+      </SubPage>
+    );
+  }
+
+  if (activePage === "menu") {
+    return (
+      <SubPage title="จัดการเมนู" onBack={() => setActivePage("main")}>
+        <MenuManageSection />
+      </SubPage>
+    );
+  }
+
+  if (activePage === "category") {
+    return (
+      <SubPage title="หมวดหมู่" onBack={() => setActivePage("main")}>
+        <CategoryManageSection />
+      </SubPage>
+    );
+  }
+
+  if (activePage === "modifier") {
+    return (
+      <SubPage title="Modifier" onBack={() => setActivePage("main")}>
+        <ModifierManageSection />
       </SubPage>
     );
   }
@@ -82,6 +119,24 @@ function SettingsPage() {
             icon={<Store className="h-5 w-5 text-zinc-500" />}
             label="ข้อมูลร้านค้า"
             onClick={() => setActivePage("shop")}
+          />
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border shadow-sm">
+          <MenuRow
+            icon={<Coffee className="h-5 w-5 text-amber-600" />}
+            label="จัดการเมนู"
+            onClick={() => setActivePage("menu")}
+          />
+          <MenuRow
+            icon={<Tag className="h-5 w-5 text-emerald-600" />}
+            label="หมวดหมู่"
+            onClick={() => setActivePage("category")}
+          />
+          <MenuRow
+            icon={<SlidersHorizontal className="h-5 w-5 text-indigo-500" />}
+            label="Modifier"
+            onClick={() => setActivePage("modifier")}
           />
         </section>
 
@@ -366,5 +421,431 @@ function ChangePasswordSection({ onDone }: { onDone: () => void }) {
         {busy ? "กำลังบันทึก..." : "บันทึก"}
       </button>
     </form>
+  );
+}
+
+// ---- Category management ---------------------------------------------------
+// Real categories table (added alongside this feature) — a proper add/edit/
+// delete list instead of retyping a category name per menu item.
+function CategoryManageSection() {
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["hub-categories"], queryFn: () => hub.list<Category>("categories") });
+  const [name, setName] = useState("");
+  const [editing, setEditing] = useState<Category | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["hub-categories"] });
+    qc.invalidateQueries({ queryKey: ["hub-catalog"] });
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setName("");
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      if (editing) {
+        await hub.update("categories", editing.id, { name: trimmed });
+        toast.success("แก้ไขหมวดหมู่แล้ว");
+      } else {
+        await hub.insert("categories", { name: trimmed });
+        toast.success("เพิ่มหมวดหมู่แล้ว");
+      }
+      cancelEdit();
+      refresh();
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (c: Category) => {
+    if (!confirm(`ลบหมวดหมู่ "${c.name}"?`)) return;
+    try {
+      await hub.remove("categories", c.id);
+      toast.success("ลบหมวดหมู่แล้ว");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "ลบไม่สำเร็จ");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        <label className="mb-1.5 block text-sm font-medium">
+          {editing ? `แก้ไข "${editing.name}"` : "ชื่อหมวดหมู่ใหม่"}
+        </label>
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="เช่น กาแฟ, ชา, ของหวาน"
+            className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {busy ? "…" : editing ? "บันทึก" : "เพิ่ม"}
+          </button>
+        </div>
+        {editing && (
+          <button type="button" onClick={cancelEdit} className="text-xs font-medium text-muted-foreground underline">
+            ยกเลิกแก้ไข
+          </button>
+        )}
+      </form>
+
+      <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+        {list.isLoading ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+        ) : (list.data ?? []).length === 0 ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มีหมวดหมู่</p>
+        ) : (
+          (list.data ?? []).map((c) => (
+            <div key={c.id} className="flex items-center justify-between px-4 py-3">
+              <span className="text-sm font-medium">{c.name}</span>
+              <div className="flex gap-3">
+                <button onClick={() => { setEditing(c); setName(c.name); }} className="text-xs font-semibold text-primary">
+                  แก้ไข
+                </button>
+                <button onClick={() => remove(c)} className="text-xs font-semibold text-destructive">
+                  ลบ
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ---- Modifier management (same addons table Recipes.jsx's "Add-on Options"
+// manages in the Mother app — this is just another entry point onto it) ------
+function ModifierManageSection() {
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["hub-addons"], queryFn: () => hub.list<Addon>("addons") });
+  const [name, setName] = useState("");
+  const [priceChange, setPriceChange] = useState("");
+  const [editing, setEditing] = useState<Addon | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["hub-addons"] });
+    qc.invalidateQueries({ queryKey: ["hub-catalog"] });
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setName("");
+    setPriceChange("");
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      const payload = { name: trimmed, price_change: Number(priceChange) || 0 };
+      if (editing) {
+        await hub.update("addons", editing.id, payload);
+        toast.success("แก้ไข modifier แล้ว");
+      } else {
+        await hub.insert("addons", payload);
+        toast.success("เพิ่ม modifier แล้ว");
+      }
+      cancelEdit();
+      refresh();
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (a: Addon) => {
+    if (!confirm(`ลบ modifier "${a.name}"?`)) return;
+    try {
+      await hub.remove("addons", a.id);
+      toast.success("ลบ modifier แล้ว");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "ลบไม่สำเร็จ");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        <label className="mb-1.5 block text-sm font-medium">
+          {editing ? `แก้ไข "${editing.name}"` : "Modifier ใหม่"}
+        </label>
+        <div className="flex gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="เช่น เพิ่มไข่มุก"
+            className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <input
+            type="number"
+            inputMode="decimal"
+            value={priceChange}
+            onChange={(e) => setPriceChange(e.target.value)}
+            placeholder="+฿"
+            className="h-11 w-24 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="h-11 flex-1 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {busy ? "…" : editing ? "บันทึก" : "เพิ่ม"}
+          </button>
+          {editing && (
+            <button type="button" onClick={cancelEdit} className="h-11 rounded-xl border border-border px-4 text-sm font-medium">
+              ยกเลิก
+            </button>
+          )}
+        </div>
+      </form>
+
+      <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+        {list.isLoading ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+        ) : (list.data ?? []).length === 0 ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มี modifier</p>
+        ) : (
+          (list.data ?? []).map((a) => (
+            <div key={a.id} className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">{a.name}</p>
+                <p className="text-xs text-muted-foreground">+{formatTHB(Number(a.price_change))}</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setEditing(a); setName(a.name); setPriceChange(String(a.price_change)); }}
+                  className="text-xs font-semibold text-primary"
+                >
+                  แก้ไข
+                </button>
+                <button onClick={() => remove(a)} className="text-xs font-semibold text-destructive">
+                  ลบ
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ---- Menu management --------------------------------------------------------
+// menuname.id is a text primary key (e.g. "MN007"), assigned client-side —
+// mirrors nextSeqId() in the SMA08 client's helpers.js.
+function nextMenuId(existing: MenuItem[]) {
+  let max = 0;
+  const re = /^MN(\d+)$/;
+  existing.forEach((m) => {
+    const match = re.exec(String(m.id ?? ""));
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return `MN${String(max + 1).padStart(3, "0")}`;
+}
+
+const blankMenuForm = { category: "", name: "", front_price: "", delivery_price: "", status: "Active" as const };
+
+function MenuManageSection() {
+  const qc = useQueryClient();
+  const menuList = useQuery({ queryKey: ["hub-menuname"], queryFn: () => hub.list<MenuItem>("menuname") });
+  const categoryList = useQuery({ queryKey: ["hub-categories"], queryFn: () => hub.list<Category>("categories") });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<{
+    category: string;
+    name: string;
+    front_price: string;
+    delivery_price: string;
+    status: "Active" | "Inactive";
+  }>(blankMenuForm);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["hub-menuname"] });
+    qc.invalidateQueries({ queryKey: ["hub-catalog"] });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(blankMenuForm);
+  };
+
+  const startEdit = (m: MenuItem) => {
+    setEditingId(m.id);
+    setForm({
+      category: m.category || "",
+      name: m.name,
+      front_price: String(m.front_price ?? ""),
+      delivery_price: String(m.delivery_price ?? ""),
+      status: m.status === "Inactive" ? "Inactive" : "Active",
+    });
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim()) {
+      toast.error("กรุณากรอกชื่อเมนู");
+      return;
+    }
+    setBusy(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        category: form.category,
+        front_price: Number(form.front_price) || 0,
+        delivery_price: Number(form.delivery_price) || 0,
+        status: form.status,
+      };
+      if (editingId) {
+        await hub.update("menuname", editingId, payload);
+        toast.success("แก้ไขเมนูแล้ว");
+      } else {
+        const id = nextMenuId(menuList.data ?? []);
+        await hub.insert("menuname", { id, ...payload });
+        toast.success("เพิ่มเมนูแล้ว");
+      }
+      cancelEdit();
+      refresh();
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (m: MenuItem) => {
+    if (!confirm(`ลบเมนู "${m.name}"?`)) return;
+    try {
+      await hub.remove("menuname", m.id);
+      toast.success("ลบเมนูแล้ว");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "ลบไม่สำเร็จ");
+    }
+  };
+
+  const categories = categoryList.data ?? [];
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        <label className="block text-sm font-medium">{editingId ? `แก้ไข "${form.name}"` : "เมนูใหม่"}</label>
+        <input
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          placeholder="ชื่อเมนู"
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        />
+        <select
+          value={form.category}
+          onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        >
+          <option value="">-- หมวดหมู่ --</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.name}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            inputMode="decimal"
+            value={form.front_price}
+            onChange={(e) => setForm((f) => ({ ...f, front_price: e.target.value }))}
+            placeholder="ราคาหน้าร้าน"
+            className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <input
+            type="number"
+            inputMode="decimal"
+            value={form.delivery_price}
+            onChange={(e) => setForm((f) => ({ ...f, delivery_price: e.target.value }))}
+            placeholder="ราคาเดลิเวอรี่"
+            className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <select
+          value={form.status}
+          onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as "Active" | "Inactive" }))}
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        >
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </select>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={busy}
+            className="h-11 flex-1 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {busy ? "…" : editingId ? "บันทึก" : "เพิ่มเมนู"}
+          </button>
+          {editingId && (
+            <button type="button" onClick={cancelEdit} className="h-11 rounded-xl border border-border px-4 text-sm font-medium">
+              ยกเลิก
+            </button>
+          )}
+        </div>
+      </form>
+
+      <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+        {menuList.isLoading ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+        ) : (menuList.data ?? []).length === 0 ? (
+          <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มีเมนู</p>
+        ) : (
+          (menuList.data ?? []).map((m) => (
+            <div key={m.id} className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">
+                  {m.name}
+                  {m.status === "Inactive" && (
+                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      Inactive
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {m.category || "ไม่มีหมวดหมู่"} · {formatTHB(Number(m.front_price))}
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => startEdit(m)} className="text-xs font-semibold text-primary">
+                  แก้ไข
+                </button>
+                <button onClick={() => remove(m)} className="text-xs font-semibold text-destructive">
+                  ลบ
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+    </div>
   );
 }

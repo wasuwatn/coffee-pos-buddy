@@ -160,6 +160,18 @@ export const hub = {
         : "";
     return req<T[]>("GET", `/api/${table}${qs}`);
   },
+  // Generic table writes (same REST shape as SMA08's client/src/lib/api.js) —
+  // used by the in-app menu/category/modifier management under Settings,
+  // gated server-side the same way the Mother app is (users.access 'bom' flag).
+  insert<T = Record<string, unknown>>(table: string, data: Record<string, unknown>) {
+    return req<T>("POST", `/api/${table}`, data);
+  },
+  update<T = Record<string, unknown>>(table: string, id: string | number, data: Record<string, unknown>) {
+    return req<T>("PUT", `/api/${table}/${encodeURIComponent(id)}`, data);
+  },
+  remove(table: string, id: string | number) {
+    return req<void>("DELETE", `/api/${table}/${encodeURIComponent(id)}`);
+  },
   shiftCurrent: () => req<ShiftRow | null>("GET", "/api/shift/current"),
   shiftOpen: (opening_cash: number) => req<ShiftRow>("POST", "/api/shift/open", { opening_cash }),
   shiftClose: (closing_cash: number | null, note?: string) =>
