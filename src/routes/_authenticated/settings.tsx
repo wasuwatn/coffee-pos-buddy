@@ -546,11 +546,18 @@ function CategoryManageSection() {
 
 // ---- Modifier management (same addons table Recipes.jsx's "Add-on Options"
 // manages in the Mother app — this is just another entry point onto it) ------
+const MODIFIER_KIND_LABEL: Record<string, string> = {
+  extra: "Extra (เลือกได้หลายอัน ไม่บังคับ)",
+  container: "ภาชนะ (เลือก 1 อัน บังคับ)",
+  sweetness: "ความหวาน (เลือก 1 อัน บังคับ)",
+};
+
 function ModifierManageSection() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["hub-addons"], queryFn: () => hub.list<Addon>("addons") });
   const [name, setName] = useState("");
   const [priceChange, setPriceChange] = useState("");
+  const [kind, setKind] = useState("extra");
   const [editing, setEditing] = useState<Addon | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -563,6 +570,7 @@ function ModifierManageSection() {
     setEditing(null);
     setName("");
     setPriceChange("");
+    setKind("extra");
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -571,7 +579,7 @@ function ModifierManageSection() {
     if (!trimmed) return;
     setBusy(true);
     try {
-      const payload = { name: trimmed, price_change: Number(priceChange) || 0 };
+      const payload = { name: trimmed, price_change: Number(priceChange) || 0, kind };
       if (editing) {
         await hub.update("addons", editing.id, payload);
         toast.success("แก้ไข modifier แล้ว");
@@ -621,6 +629,17 @@ function ModifierManageSection() {
             className="h-11 w-24 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
           />
         </div>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        >
+          {Object.entries(MODIFIER_KIND_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
         <div className="flex gap-2">
           <button
             type="submit"
@@ -647,11 +666,13 @@ function ModifierManageSection() {
             <div key={a.id} className="flex items-center justify-between px-4 py-3">
               <div>
                 <p className="text-sm font-medium">{a.name}</p>
-                <p className="text-xs text-muted-foreground">+{formatTHB(Number(a.price_change))}</p>
+                <p className="text-xs text-muted-foreground">
+                  {MODIFIER_KIND_LABEL[a.kind || "extra"] || a.kind} · +{formatTHB(Number(a.price_change))}
+                </p>
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => { setEditing(a); setName(a.name); setPriceChange(String(a.price_change)); }}
+                  onClick={() => { setEditing(a); setName(a.name); setPriceChange(String(a.price_change)); setKind(a.kind || "extra"); }}
                   className="text-xs font-semibold text-primary"
                 >
                   แก้ไข

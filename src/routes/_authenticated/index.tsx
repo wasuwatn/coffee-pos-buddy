@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useCatalog, categoryColor, type MenuItem } from "@/lib/hub/catalog";
-import { CONTAINERS, parseSweetnessLevels } from "@/lib/hub/pos-helpers";
+import { deriveContainers, deriveSweetness } from "@/lib/hub/pos-helpers";
 import { useHubUser } from "@/lib/hub/session";
 import { useCart, formatTHB, type CartItem } from "@/lib/cart-store";
 import { ShoppingBag, Sparkles, Plus, Minus, X } from "lucide-react";
@@ -160,25 +160,28 @@ function ProductOptionModal({
   onAdd: (item: Omit<CartItem, "qty" | "cartItemId">, qty: number) => void;
 }) {
   const variants = catalog.childmenu.filter((c) => c.menu_name === product.name);
-  const sweetnessLevels = parseSweetnessLevels(catalog.settings?.sweetness_levels);
+  const containers = deriveContainers(catalog.addons);
+  const sweetnessLevels = deriveSweetness(catalog.addons);
+  const extraAddons = catalog.addons.filter((a) => (a.kind || "extra") === "extra");
 
   const [childId, setChildId] = useState<string | null>(variants[0]?.id ?? null);
-  const [container, setContainer] = useState<string>(CONTAINERS[0].value);
-  const [sweetness, setSweetness] = useState<string>(sweetnessLevels[0]);
+  const [container, setContainer] = useState<string>(containers[0]?.value ?? "Ice");
+  const [sweetness, setSweetness] = useState<string>(sweetnessLevels[0]?.value ?? "");
   const [addonNames, setAddonNames] = useState<string[]>([]);
   const [qty, setQty] = useState(1);
 
   useEffect(() => {
     setChildId(variants[0]?.id ?? null);
-    setContainer(CONTAINERS[0].value);
-    setSweetness(sweetnessLevels[0]);
+    setContainer(containers[0]?.value ?? "Ice");
+    setSweetness(sweetnessLevels[0]?.value ?? "");
     setAddonNames([]);
     setQty(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product.id]);
 
   const selectedVariant = variants.find((v) => String(v.id) === String(childId));
-  const containerAdj = CONTAINERS.find((c) => c.value === container)?.adj ?? 0;
+  const containerAdj = containers.find((c) => c.value === container)?.adj ?? 0;
+  const sweetnessAdj = sweetnessLevels.find((s) => s.value === sweetness)?.adj ?? 0;
   const addonPrice = addonNames.reduce(
     (n, name) => n + Number(catalog.addons.find((a) => a.name === name)?.price_change ?? 0),
     0,
@@ -187,6 +190,7 @@ function ProductOptionModal({
     Number(product.front_price) +
     Number(selectedVariant?.price_change ?? 0) +
     containerAdj +
+    sweetnessAdj +
     addonPrice;
 
   const toggleAddon = (name: string) => {
@@ -195,7 +199,7 @@ function ProductOptionModal({
     );
   };
 
-  const containerLabel = CONTAINERS.find((c) => c.value === container)?.label ?? container;
+  const containerLabel = containers.find((c) => c.value === container)?.label ?? container;
   const displayName = selectedVariant ? `${product.name} (${selectedVariant.name})` : product.name;
   const options = [selectedVariant?.name, containerLabel, sweetness, ...addonNames].filter(
     Boolean,
@@ -240,7 +244,7 @@ function ProductOptionModal({
             )}
 
             <OptionGroup title="ภาชนะ">
-              {CONTAINERS.map((c) => (
+              {containers.map((c) => (
                 <PillButton
                   key={c.value}
                   active={container === c.value}
@@ -259,19 +263,25 @@ function ProductOptionModal({
 
             <OptionGroup title="ความหวาน">
               {sweetnessLevels.map((s) => (
-                <PillButton key={s} active={sweetness === s} onClick={() => setSweetness(s)}>
-                  {s}
+                <PillButton key={s.value} active={sweetness === s.value} onClick={() => setSweetness(s.value)}>
+                  {s.label}
+                  {s.adj !== 0 && (
+                    <span className="ml-1 text-xs opacity-80">
+                      ({s.adj > 0 ? "+" : ""}
+                      {formatTHB(s.adj)})
+                    </span>
+                  )}
                 </PillButton>
               ))}
             </OptionGroup>
 
-            {catalog.addons.length > 0 && (
+            {extraAddons.length > 0 && (
               <div>
                 <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
                   ท็อปปิ้ง / Add-on
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {catalog.addons.map((a) => {
+                  {extraAddons.map((a) => {
                     const isSelected = addonNames.includes(a.name);
                     return (
                       <button
