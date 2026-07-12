@@ -127,8 +127,6 @@ Suggested trial period before retiring `pos.html`:
       items with each payment method → close shift, compare the Z-report
       against what `pos.html` would have shown for the same sales)
 - [ ] Confirm sales show up correctly in the Mother app's dashboards/SalesLog
-- [ ] Confirm stock deducts correctly for a menu item that has a variant,
-      an add-on, and a packaging/mat-prep BOM set
 - [ ] Use it for a few full days of real service
 - [ ] Once confident, stop opening shifts from `pos.html` and use this app
       exclusively (no code change needed to "retire" `pos.html` — just stop
@@ -146,3 +144,32 @@ SMA08 repo (Phase 2.5 / 2.6):
   ledger aren't wired up here yet.
 - **No time-of-day on past orders.** The hub's `salefront` table only stores
   a date per sale, not a timestamp, so History/Receipt show date only.
+- **No material stock tracking.** This is a deliberate difference from
+  `pos.html`, not a gap: checkout no longer computes or sends a stock
+  deduction (`requirements`) payload, so selling from this app never checks
+  or decrements material stock on the hub. If a menu item's ingredients run
+  out, this app will still let staff sell it. Don't rely on this app's sales
+  to keep the hub's material stock accurate if that still matters to you.
+
+## Modifier categories (Settings → Modifier)
+
+Modifiers (e.g. sweetness, container, extra toppings) are organized into
+staff-created **categories** — each with a name and a "กดได้แค่ 1" (single-
+select, required) or "กดได้มากกว่า 1" (multi-select, optional) mode, plus a
+list of options with their own price adjustments. Create a category, then
+use its "เพิ่ม" button to add options into it. The sell screen renders every
+category that exists, in whatever order they were created — there's no
+fixed limit or fixed set of categories anymore.
+
+**Implementation note:** the hub has no dedicated table for this, so it's
+built on top of the existing `addons` table by overloading the `kind`
+column (see the comment on the `Addon` type in `src/lib/hub/catalog.ts`):
+a `modcat:<single|multi>` row is a category shell, a `modopt:<categoryId>`
+row is one option belonging to it. This table is shared with the Mother
+app's Recipes.jsx "Add-on Options" screen, which only understands the old
+fixed container/sweetness/extra values — modcat/modopt rows will show
+there as an unrecognized `kind` string. If a shop still has add-ons using
+the old values, Settings → Modifier shows a one-time "ย้ายข้อมูล" button
+that migrates them into three equivalent categories (names/prices
+preserved) — safe to run once, and it no-ops if there's nothing left to
+migrate.
