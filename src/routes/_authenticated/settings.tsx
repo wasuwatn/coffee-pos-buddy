@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hub, HubApiError } from "@/lib/hub/client";
-import { useCatalog, type MenuItem, type Addon, type Category } from "@/lib/hub/catalog";
+import { useCatalog, type MenuItem, type Addon, type Category, type ChildMenu, type Material } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { formatTHB } from "@/lib/cart-store";
 import {
@@ -16,6 +16,7 @@ import {
   Coffee,
   Tag,
   SlidersHorizontal,
+  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -23,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
-type ActivePage = "main" | "shop" | "shift" | "password" | "menu" | "category" | "modifier";
+type ActivePage = "main" | "shop" | "shift" | "password" | "menu" | "category" | "modifier" | "childmenu";
 
 function SettingsPage() {
   const navigate = useNavigate();
@@ -83,6 +84,14 @@ function SettingsPage() {
     );
   }
 
+  if (activePage === "childmenu") {
+    return (
+      <SubPage title="ตัวเลือกเมนู (Child Menu)" onBack={() => setActivePage("main")}>
+        <ChildMenuManageSection />
+      </SubPage>
+    );
+  }
+
   if (activePage === "shift") {
     return (
       <SubPage title="กะเงินสด" onBack={() => setActivePage("main")}>
@@ -137,6 +146,11 @@ function SettingsPage() {
             icon={<SlidersHorizontal className="h-5 w-5 text-indigo-500" />}
             label="Modifier"
             onClick={() => setActivePage("modifier")}
+          />
+          <MenuRow
+            icon={<Layers className="h-5 w-5 text-rose-500" />}
+            label="ตัวเลือกเมนู (Child Menu)"
+            onClick={() => setActivePage("childmenu")}
           />
         </section>
 
@@ -846,6 +860,246 @@ function MenuManageSection() {
           ))
         )}
       </section>
+    </div>
+  );
+}
+
+// ---- Child menu management --------------------------------------------------
+// A "child menu" is a variant a customer picks for one drink (e.g. bean type)
+// that deducts a specific material — same table Recipes.jsx's recipe composer
+// manages in the Mother app, scoped here to one drink at a time instead of
+// bundled with the full BOM ingredient editor.
+const blankChildForm = { name: "", category: "", material_id: "", qty_used: "1", price_change: "" };
+
+function ChildMenuManageSection() {
+  const qc = useQueryClient();
+  const catalog = useCatalog(); // for packagingbom/matprepbom sets, already cached
+  const menuList = useQuery({ queryKey: ["hub-menuname"], queryFn: () => hub.list<MenuItem>("menuname") });
+  const materialList = useQuery({ queryKey: ["hub-materials"], queryFn: () => hub.list<Material>("materials") });
+  const childList = useQuery({ queryKey: ["hub-childmenu"], queryFn: () => hub.list<ChildMenu>("childmenu") });
+
+  const [selectedMenuId, setSelectedMenuId] = useState("");
+  const [editingId, setEditingId] = useState<ChildMenu["id"] | null>(null);
+  const [form, setForm] = useState(blankChildForm);
+  const [busy, setBusy] = useState(false);
+
+  const materials = materialList.data ?? [];
+  const packagingbom = catalog.data?.packagingbom ?? [];
+  const matprepbom = catalog.data?.matprepbom ?? [];
+  const ingredientCategories = Array.from(new Set(materials.map((m) => m.category).filter(Boolean)));
+  const allCategories = [...ingredientCategories, "Packaging Sets", "Mat Prep Sets"];
+
+  const itemsForCategory = (cat: string): { id: string; label: string }[] => {
+    if (cat === "Packaging Sets") return packagingbom.map((p) => ({ id: p.id, label: `[Set] ${p.name}` }));
+    if (cat === "Mat Prep Sets") return matprepbom.map((p) => ({ id: p.id, label: `[Prep] ${p.name}` }));
+    return materials.filter((m) => m.category === cat).map((m) => ({ id: m.id, label: `${m.item} [${m.unit}]` }));
+  };
+  const categoryOfMaterial = (materialId: string) => {
+    if (!materialId) return "";
+    if (materialId.startsWith("PBOM")) return "Packaging Sets";
+    if (materialId.startsWith("MPREP")) return "Mat Prep Sets";
+    return materials.find((m) => m.id === materialId)?.category ?? "";
+  };
+
+  const selectedMenu = (menuList.data ?? []).find((m) => m.id === selectedMenuId) ?? null;
+  const rowsForMenu = (childList.data ?? []).filter((c) => c.menu_name === selectedMenu?.name);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["hub-childmenu"] });
+    qc.invalidateQueries({ queryKey: ["hub-catalog"] });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(blankChildForm);
+  };
+
+  const selectMenu = (id: string) => {
+    setSelectedMenuId(id);
+    cancelEdit();
+  };
+
+  const startEdit = (c: ChildMenu) => {
+    setEditingId(c.id);
+    setForm({
+      name: c.name,
+      category: categoryOfMaterial(c.material_id),
+      material_id: c.material_id,
+      qty_used: String(c.qty_used ?? 1),
+      price_change: String(c.price_change ?? 0),
+    });
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMenu) {
+      toast.error("กรุณาเลือกเมนูก่อน");
+      return;
+    }
+    if (!form.name.trim() || !form.material_id) {
+      toast.error("กรุณากรอกชื่อตัวเลือกและเลือกวัตถุดิบ");
+      return;
+    }
+    setBusy(true);
+    try {
+      const payload = {
+        menu_name: selectedMenu.name,
+        menu_id: selectedMenu.id,
+        name: form.name.trim(),
+        material_id: form.material_id,
+        qty_used: Number(form.qty_used) || 1,
+        price_change: Number(form.price_change) || 0,
+      };
+      if (editingId != null) {
+        await hub.update("childmenu", editingId, payload);
+        toast.success("แก้ไขตัวเลือกแล้ว");
+      } else {
+        await hub.insert("childmenu", payload);
+        toast.success("เพิ่มตัวเลือกแล้ว");
+      }
+      cancelEdit();
+      refresh();
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (c: ChildMenu) => {
+    if (!confirm(`ลบตัวเลือก "${c.name}"?`)) return;
+    try {
+      await hub.remove("childmenu", c.id);
+      toast.success("ลบตัวเลือกแล้ว");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof HubApiError ? e.message : "ลบไม่สำเร็จ");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-border bg-card p-4 space-y-2">
+        <label className="block text-sm font-medium">เลือกเมนู</label>
+        <select
+          value={selectedMenuId}
+          onChange={(e) => selectMenu(e.target.value)}
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        >
+          <option value="">-- เลือกเมนู --</option>
+          {(menuList.data ?? []).map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedMenu && (
+        <>
+          <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+            <label className="block text-sm font-medium">
+              {editingId != null ? `แก้ไข "${form.name}"` : `ตัวเลือกใหม่สำหรับ ${selectedMenu.name}`}
+            </label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="เช่น Brasil Santos"
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+            />
+            <select
+              value={form.category}
+              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value, material_id: "" }))}
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+            >
+              <option value="">-- หมวดวัตถุดิบ --</option>
+              {allCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select
+              value={form.material_id}
+              disabled={!form.category}
+              onChange={(e) => setForm((f) => ({ ...f, material_id: e.target.value }))}
+              className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
+            >
+              <option value="">{form.category ? "-- เลือกวัตถุดิบ --" : "-- เลือกหมวดก่อน --"}</option>
+              {itemsForCategory(form.category).map((it) => (
+                <option key={it.id} value={it.id}>
+                  {it.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                inputMode="decimal"
+                step="any"
+                value={form.qty_used}
+                onChange={(e) => setForm((f) => ({ ...f, qty_used: e.target.value }))}
+                placeholder="จำนวนที่ใช้"
+                className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+              <input
+                type="number"
+                inputMode="decimal"
+                value={form.price_change}
+                onChange={(e) => setForm((f) => ({ ...f, price_change: e.target.value }))}
+                placeholder="+฿ ราคาเปลี่ยน"
+                className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={busy}
+                className="h-11 flex-1 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                {busy ? "…" : editingId != null ? "บันทึก" : "เพิ่มตัวเลือก"}
+              </button>
+              {editingId != null && (
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="h-11 rounded-xl border border-border px-4 text-sm font-medium"
+                >
+                  ยกเลิก
+                </button>
+              )}
+            </div>
+          </form>
+
+          <section className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+            {childList.isLoading ? (
+              <p className="p-4 text-center text-sm text-muted-foreground">กำลังโหลด...</p>
+            ) : rowsForMenu.length === 0 ? (
+              <p className="p-4 text-center text-sm text-muted-foreground">ยังไม่มีตัวเลือกสำหรับเมนูนี้</p>
+            ) : (
+              rowsForMenu.map((c) => (
+                <div key={c.id} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">{c.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {materials.find((m) => m.id === c.material_id)?.item ?? c.material_id} · {c.qty_used}
+                      {Number(c.price_change) !== 0 && ` · +${formatTHB(Number(c.price_change))}`}
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => startEdit(c)} className="text-xs font-semibold text-primary">
+                      แก้ไข
+                    </button>
+                    <button onClick={() => remove(c)} className="text-xs font-semibold text-destructive">
+                      ลบ
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }

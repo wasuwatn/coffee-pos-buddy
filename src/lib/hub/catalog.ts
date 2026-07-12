@@ -26,6 +26,7 @@ export type ChildMenu = {
 };
 export type Addon = { id: number; name: string; price_change: number };
 export type Category = { id: number; name: string };
+export type Material = { id: string; category: string; item: string; unit: string; status: string };
 export type BomRow = {
   id: number;
   menu_name: string;
