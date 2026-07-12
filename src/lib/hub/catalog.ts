@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { hub } from "./client";
 
-// Catalog master data (menu, variants, add-ons, BOM, shop settings) now lives
-// in the SMA08 hub, managed from the Mother app (Materials/Recipes pages) —
-// same convention as the existing pos.html satellite, which is also
-// read-only against these tables. This app only reads them to build the
-// sell screen and compute stock requirements at checkout.
+// Catalog master data (menu, variants, add-ons, shop settings) now lives in
+// the SMA08 hub, managed from the Mother app (Materials/Recipes pages) — same
+// convention as the existing pos.html satellite, which is also read-only
+// against these tables. This app only reads them to build the sell screen —
+// it does not track material stock, so it never touches the bom table.
 
 export type MenuItem = {
   id: string;
@@ -31,13 +31,6 @@ export type ChildMenu = {
 export type Addon = { id: number; name: string; price_change: number; kind?: string };
 export type Category = { id: number; name: string };
 export type Material = { id: string; category: string; item: string; unit: string; status: string };
-export type BomRow = {
-  id: number;
-  menu_name: string;
-  menu_id?: string;
-  material_id: string;
-  qty_used: number;
-};
 export type SetBom = { id: string; name: string; items: string };
 export type ShopSettings = {
   id: number;
@@ -56,7 +49,6 @@ export type Catalog = {
   categories: string[];
   childmenu: ChildMenu[];
   addons: Addon[];
-  bom: BomRow[];
   packagingbom: SetBom[];
   matprepbom: SetBom[];
   settings: ShopSettings | null;
@@ -83,12 +75,11 @@ export function useCatalog() {
   return useQuery({
     queryKey: ["hub-catalog"],
     queryFn: async (): Promise<Catalog> => {
-      const [menuname, childmenu, addons, bom, packagingbom, matprepbom, settingsRows] =
+      const [menuname, childmenu, addons, packagingbom, matprepbom, settingsRows] =
         await Promise.all([
           hub.list<MenuItem>("menuname"),
           hub.list<ChildMenu>("childmenu"),
           hub.list<Addon>("addons"),
-          hub.list<BomRow>("bom"),
           hub.list<SetBom>("packagingbom"),
           hub.list<SetBom>("matprepbom"),
           hub.list<ShopSettings>("settings"),
@@ -100,7 +91,6 @@ export function useCatalog() {
         categories,
         childmenu,
         addons,
-        bom,
         packagingbom,
         matprepbom,
         settings: settingsRows[0] ?? null,
@@ -108,53 +98,4 @@ export function useCatalog() {
     },
     staleTime: 1000 * 60,
   });
-}
-
-// ---- Stock requirements (ported from SMA08 client/src/lib/helpers.js so both
-// apps deduct materials identically) ----------------------------------------
-
-function expandSetItems(materialId: string, packagingbom: SetBom[], matprepbom: SetBom[]) {
-  const id = String(materialId);
-  const pool = id.startsWith("PBOM") ? packagingbom : id.startsWith("MPREP") ? matprepbom : null;
-  if (!pool) return null;
-  const set = pool.find((p) => p.id === materialId);
-  if (!set) return [];
-  try {
-    return JSON.parse(set.items) as { material_id: string; qty_used: number }[];
-  } catch {
-    return [];
-  }
-}
-
-export type RequirementLine = { name: string; qty: number; childId?: string | null };
-
-export function computeRequirements(
-  lines: RequirementLine[],
-  bom: BomRow[],
-  packagingbom: SetBom[],
-  childmenu: ChildMenu[],
-  matprepbom: SetBom[],
-): Record<string, number> {
-  const req: Record<string, number> = {};
-  const add = (matId: string | undefined, amount: number) => {
-    if (matId) req[matId] = (req[matId] || 0) + amount;
-  };
-  lines.forEach(({ name, qty, childId }) => {
-    bom
-      .filter((b) => b.menu_name === name)
-      .forEach((r) => {
-        const amount = Number(r.qty_used) * qty;
-        const setItems = expandSetItems(r.material_id, packagingbom, matprepbom);
-        if (setItems !== null) {
-          setItems.forEach((it) => add(it.material_id, Number(it.qty_used) * amount));
-        } else {
-          add(r.material_id, amount);
-        }
-      });
-    if (childId) {
-      const child = childmenu.find((c) => String(c.id) === String(childId));
-      if (child) add(child.material_id, Number(child.qty_used || 1) * qty);
-    }
-  });
-  return req;
 }

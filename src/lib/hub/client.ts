@@ -126,7 +126,9 @@ export type CheckoutPayload = {
   client_txn_id: string;
   date: string;
   sales: CheckoutSaleRow[];
-  requirements: CheckoutRequirement[];
+  // POS buddy no longer tracks material stock, so it stops sending
+  // requirements — the hub still accepts the field for other clients.
+  requirements?: CheckoutRequirement[];
 };
 
 export const hub = {

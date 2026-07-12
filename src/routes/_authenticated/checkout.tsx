@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCart, formatTHB } from "@/lib/cart-store";
-import { useCatalog, computeRequirements } from "@/lib/hub/catalog";
+import { useCatalog } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { hub, HubApiError } from "@/lib/hub/client";
 import { today } from "@/lib/hub/pos-helpers";
@@ -89,24 +89,6 @@ function CheckoutPage() {
     if (!catalog.data) return;
     setLoading(true);
     try {
-      const lines = items.map((i) => {
-        const product = catalog.data!.products.find((p) => p.id === i.menuId);
-        return { name: product?.name ?? i.name, qty: i.qty, childId: i.childId };
-      });
-      const requirements = Object.entries(
-        computeRequirements(
-          lines,
-          catalog.data.bom,
-          catalog.data.packagingbom,
-          catalog.data.childmenu,
-          catalog.data.matprepbom,
-        ),
-      ).map(([material_id, qty]) => ({
-        material_id,
-        qty,
-        note: `Kafe POS: ${items.map((i) => `${i.name} x${i.qty}`).join(", ")}`,
-      }));
-
       const sales: Record<string, unknown>[] = [];
       for (const item of items) {
         const product = catalog.data.products.find((p) => p.id === item.menuId);
@@ -142,7 +124,6 @@ function CheckoutPage() {
         client_txn_id: crypto.randomUUID(),
         date: today(),
         sales,
-        requirements,
       });
       clear();
       qc.invalidateQueries({ queryKey: ["hub-shift-current"] });
