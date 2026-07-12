@@ -93,11 +93,12 @@ function CheckoutPage() {
       for (const item of items) {
         const product = catalog.data.products.find((p) => p.id === item.menuId);
         const variant = catalog.data.childmenu.find((c) => String(c.id) === String(item.childId));
-        const addonPrice = item.addonNames.reduce(
-          (n, name) =>
-            n + Number(catalog.data!.addons.find((a) => a.name === name)?.price_change ?? 0),
-          0,
-        );
+        // Every selected modifier (across every category, not just the old
+        // fixed container/sweetness/extra slots) folds into the addons
+        // column — the salefront table has no per-category columns beyond
+        // these fixed ones, so container/sweetness stay blank going forward.
+        const addonNames = item.modifiers.flatMap((m) => m.optionNames);
+        const addonPrice = item.modifiers.reduce((n, m) => n + m.priceChange, 0);
         for (let i = 0; i < item.qty; i++) {
           sales.push({
             date: today(),
@@ -108,9 +109,9 @@ function CheckoutPage() {
             menu_name: product?.name ?? item.name,
             variant: variant?.name ?? "",
             quantity: 1,
-            sweetness: item.sweetness,
-            container: item.container,
-            addons: JSON.stringify(item.addonNames),
+            sweetness: "",
+            container: "",
+            addons: JSON.stringify(addonNames),
             addon_price: addonPrice,
             total_price: item.price,
             cashier: user?.username ?? "",

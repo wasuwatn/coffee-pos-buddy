@@ -17,39 +17,3 @@ export function claimUrl(code: string): string {
   ).replace(/\/$/, "");
   return `${base}/customer.html?claim=${code}`;
 }
-
-import type { Addon } from "./catalog";
-
-export type PickerOption = { value: string; label: string; adj: number };
-
-// Fallbacks only for the brief window before the hub's first-boot migration
-// seeds real 'container'/'sweetness' addons rows (see SMA08's server/db.js)
-// — once seeded, catalog.addons always has these, and these go unused.
-const DEFAULT_CONTAINERS: PickerOption[] = [
-  { value: "Ice", label: "เย็น", adj: 0 },
-  { value: "Hot", label: "ร้อน", adj: 0 },
-  { value: "Bottle", label: "ขวด", adj: -5 },
-];
-const DEFAULT_SWEETNESS: PickerOption[] = ["No Sweet", "25%", "50%", "100%"].map((v) => ({
-  value: v,
-  label: v,
-  adj: 0,
-}));
-
-// Container ("Ice"/"Hot"/"Bottle") and Sweetness are both required,
-// single-select modifiers — same addons table the optional multi-select
-// extras use, distinguished by `kind`. Options/prices are staff-editable
-// from Settings instead of hardcoded or a settings CSV.
-export function deriveContainers(addons: Addon[]): PickerOption[] {
-  const rows = addons.filter((a) => a.kind === "container");
-  return rows.length
-    ? rows.map((a) => ({ value: a.name, label: a.name, adj: Number(a.price_change) || 0 }))
-    : DEFAULT_CONTAINERS;
-}
-
-export function deriveSweetness(addons: Addon[]): PickerOption[] {
-  const rows = addons.filter((a) => a.kind === "sweetness");
-  return rows.length
-    ? rows.map((a) => ({ value: a.name, label: a.name, adj: Number(a.price_change) || 0 }))
-    : DEFAULT_SWEETNESS;
-}
