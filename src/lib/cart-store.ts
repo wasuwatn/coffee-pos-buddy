@@ -22,6 +22,7 @@ export type CartItem = {
   color?: string | null;
   imageUrl?: string | null;
   qty: number;
+  freeQty: number; // how many of the qty cups are free (0..qty) — free cups cost 0
   options?: string[]; // display strings for cart/receipt (variant + every selected modifier)
   childId?: string | null; // childmenu.id (variant)
   modifiers: SelectedModifier[];
@@ -29,16 +30,17 @@ export type CartItem = {
 
 type CartState = {
   items: CartItem[];
-  add: (item: Omit<CartItem, "qty" | "cartItemId">, qty?: number) => void;
+  add: (item: Omit<CartItem, "qty" | "cartItemId" | "freeQty">, qty?: number) => void;
   inc: (cartItemId: string) => void;
   dec: (cartItemId: string) => void;
+  setFree: (cartItemId: string, n: number) => void;
   remove: (cartItemId: string) => void;
   clear: () => void;
   totalQty: () => number;
   totalAmount: () => number;
 };
 
-const dedupeKey = (i: Omit<CartItem, "qty" | "cartItemId">) =>
+const dedupeKey = (i: Omit<CartItem, "qty" | "cartItemId" | "freeQty">) =>
   [
     i.menuId,
     i.childId ?? "",
@@ -58,7 +60,7 @@ export const useCart = create<CartState>((set, get) => ({
           ),
         };
       }
-      return { items: [...s.items, { ...item, cartItemId: crypto.randomUUID(), qty }] };
+      return { items: [...s.items, { ...item, cartItemId: crypto.randomUUID(), qty, freeQty: 0 }] };
     }),
   inc: (id) =>
     set((s) => ({
@@ -67,13 +69,23 @@ export const useCart = create<CartState>((set, get) => ({
   dec: (id) =>
     set((s) => ({
       items: s.items
-        .map((i) => (i.cartItemId === id ? { ...i, qty: i.qty - 1 } : i))
+        .map((i) =>
+          i.cartItemId === id
+            ? { ...i, qty: i.qty - 1, freeQty: Math.min(i.freeQty, i.qty - 1) }
+            : i,
+        )
         .filter((i) => i.qty > 0),
+    })),
+  setFree: (id, n) =>
+    set((s) => ({
+      items: s.items.map((i) =>
+        i.cartItemId === id ? { ...i, freeQty: Math.max(0, Math.min(n, i.qty)) } : i,
+      ),
     })),
   remove: (id) => set((s) => ({ items: s.items.filter((i) => i.cartItemId !== id) })),
   clear: () => set({ items: [] }),
   totalQty: () => get().items.reduce((n, i) => n + i.qty, 0),
-  totalAmount: () => get().items.reduce((n, i) => n + i.qty * i.price, 0),
+  totalAmount: () => get().items.reduce((n, i) => n + (i.qty - i.freeQty) * i.price, 0),
 }));
 
 export const formatTHB = (n: number) =>

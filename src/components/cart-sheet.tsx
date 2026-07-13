@@ -1,13 +1,14 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useCart, formatTHB } from "@/lib/cart-store";
 import { Button } from "@/components/ui/button";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { Gift, Minus, Plus, Trash2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
 export function CartSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const items = useCart((s) => s.items);
   const inc = useCart((s) => s.inc);
   const dec = useCart((s) => s.dec);
+  const setFree = useCart((s) => s.setFree);
   const remove = useCart((s) => s.remove);
   const clear = useCart((s) => s.clear);
   const total = useCart((s) => s.totalAmount());
@@ -33,28 +34,67 @@ export function CartSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
           ) : (
             <ul className="space-y-3">
               {items.map((i) => (
-                <li key={i.cartItemId} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm">
-                  <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg text-white text-xs font-bold" style={{ backgroundColor: i.color || "#2d8ac9" }}>
-                    {i.imageUrl && <img src={i.imageUrl} alt={i.name} className="absolute inset-0 h-full w-full object-cover mix-blend-overlay opacity-60" />}
-                    <span className="relative z-10 drop-shadow">{i.name.slice(0, 2)}</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{i.name}</p>
-                    {i.options && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{i.options.join(", ")}</p>}
-                    <p className="mt-0.5 text-xs font-medium text-primary">{formatTHB(i.price)}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button onClick={() => dec(i.cartItemId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors">
-                      <Minus className="h-3 w-3" />
+                <li key={i.cartItemId} className="rounded-xl border border-border bg-card p-3 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg text-white text-xs font-bold" style={{ backgroundColor: i.color || "#2d8ac9" }}>
+                      {i.imageUrl && <img src={i.imageUrl} alt={i.name} className="absolute inset-0 h-full w-full object-cover mix-blend-overlay opacity-60" />}
+                      <span className="relative z-10 drop-shadow">{i.name.slice(0, 2)}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">
+                        {i.name}
+                        {i.freeQty > 0 && (
+                          <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                            ฟรี {i.freeQty} แก้ว
+                          </span>
+                        )}
+                      </p>
+                      {i.options && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{i.options.join(", ")}</p>}
+                      <p className="mt-0.5 text-xs font-medium text-primary">
+                        {formatTHB((i.qty - i.freeQty) * i.price)}
+                        {i.freeQty > 0 && (
+                          <span className="ml-1.5 text-[11px] font-normal text-muted-foreground line-through">
+                            {formatTHB(i.qty * i.price)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button onClick={() => dec(i.cartItemId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors">
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="w-6 text-center text-sm font-semibold">{i.qty}</span>
+                      <button onClick={() => inc(i.cartItemId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors">
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <button onClick={() => remove(i.cartItemId)} className="text-muted-foreground hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
                     </button>
-                    <span className="w-6 text-center text-sm font-semibold">{i.qty}</span>
-                    <button onClick={() => inc(i.cartItemId)} className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors">
-                      <Plus className="h-3 w-3" />
-                    </button>
                   </div>
-                  <button onClick={() => remove(i.cartItemId)} className="text-muted-foreground hover:text-destructive">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="mt-2.5 flex items-center justify-between border-t border-dashed border-border pt-2.5">
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Gift className="h-3.5 w-3.5" />
+                      แก้วฟรี
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setFree(i.cartItemId, i.freeQty - 1)}
+                        disabled={i.freeQty === 0}
+                        className="grid h-7 w-7 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors disabled:opacity-40"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="w-6 text-center text-sm font-semibold">{i.freeQty}</span>
+                      <button
+                        onClick={() => setFree(i.cartItemId, i.freeQty + 1)}
+                        disabled={i.freeQty >= i.qty}
+                        className="grid h-7 w-7 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 transition-colors disabled:opacity-40"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>

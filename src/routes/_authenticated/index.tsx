@@ -161,7 +161,7 @@ function ProductOptionModal({
   product: MenuItem;
   catalog: NonNullable<ReturnType<typeof useCatalog>["data"]>;
   onClose: () => void;
-  onAdd: (item: Omit<CartItem, "qty" | "cartItemId">, qty: number) => void;
+  onAdd: (item: Omit<CartItem, "qty" | "cartItemId" | "freeQty">, qty: number) => void;
 }) {
   const variants = catalog.childmenu.filter((c) => c.menu_name === product.name);
   const categories = useMemo(() => parseModifierCategories(catalog.addons), [catalog.addons]);
