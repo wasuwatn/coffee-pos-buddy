@@ -1,15 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { useOrders, type SaleRow } from "@/lib/hub/orders";
 import { hub, HubApiError } from "@/lib/hub/client";
 import { formatTHB } from "@/lib/cart-store";
-import { orderClaimUrl } from "@/lib/hub/pos-helpers";
+import { claimUrl } from "@/lib/hub/pos-helpers";
 import { saveNodeAsImage } from "@/lib/save-image";
-import { useHubUser, hasAccess } from "@/lib/hub/session";
-import { ArrowLeft, Check, ImageDown, Minus, Pencil, Plus, Trash2 } from "lucide-react";
+import { useHubUser } from "@/lib/hub/session";
+import { ArrowLeft, Ban, ImageDown } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/history/$id")({
   component: HistoryDetail,
@@ -21,29 +21,49 @@ const PAY_LABEL: Record<string, string> = {
   Transfer: "โอนเงิน",
 };
 
-// One display line groups the individual per-cup salefront rows that share the
-// same menu/customisation/price, so the cup count can be stepped up and down.
-type OrderLine = { rep: SaleRow; rowIds: number[] };
+// Group the per-cup salefront rows of an order into display lines sharing the
+// same menu/customisation/price, so identical cups collapse to a "3x" count.
+type OrderLine = { rep: SaleRow; count: number };
 
 function HistoryDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useHubUser();
-  const canEdit = hasAccess(user, "bom");
+  const isAdmin = user?.role === "Admin";
   const q = useOrders();
   const order = q.data?.find((o) => o.orderNo === id);
 
-  const [editMode, setEditMode] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [qrUrl, setQrUrl] = useState("");
   const receiptRef = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [voiding, setVoiding] = useState(false);
+  const [qrUrl, setQrUrl] = useState("");
 
-  // Loyalty points earned = number of paid (non-free) cups. Derived locally so
-  // it — and the QR below — track edits to the bill without a hub round-trip
-  // for a claim code (past bills have none stored).
-  const points = order ? order.items.filter((it) => it.is_free !== "1").length : 0;
+  // Loyalty QR + points come from the receipt claim code the hub minted at
+  // checkout, looked up by order. A voided bill has no claim row, so skip the
+  // fetch entirely.
+  const claim = useQuery({
+    queryKey: ["hub-receipt-claim", id],
+    queryFn: () => hub.receiptClaim(id),
+    enabled: !!order && !order.voided,
+    staleTime: 1000 * 30,
+  });
+
+  const claimCode = claim.data?.claim_code ?? null;
+  const claimStatus = claim.data?.status ?? null;
+  const claimPoints = claim.data?.points ?? 0;
+  const showQr = !order?.voided && !!claimCode && claimStatus === "pending";
+
+  // Regenerate the QR image whenever the claim code changes.
+  useEffect(() => {
+    if (!showQr || !claimCode) {
+      setQrUrl("");
+      return;
+    }
+    QRCode.toDataURL(claimUrl(claimCode), { width: 240, margin: 1 })
+      .then(setQrUrl)
+      .catch(() => setQrUrl(""));
+  }, [showQr, claimCode]);
 
   const lines = useMemo<OrderLine[]>(() => {
     if (!order) return [];
@@ -59,69 +79,18 @@ function HistoryDetail() {
         it.total_price,
       ].join("|");
       const line = map.get(key);
-      if (line) line.rowIds.push(it.id);
-      else map.set(key, { rep: it, rowIds: [it.id] });
+      if (line) line.count += 1;
+      else map.set(key, { rep: it, count: 1 });
     }
     return [...map.values()];
   }, [order]);
 
-  useEffect(() => {
-    if (!order) {
-      setQrUrl("");
-      return;
-    }
-    QRCode.toDataURL(orderClaimUrl(order.orderNo, points), { width: 240, margin: 1 })
-      .then(setQrUrl)
-      .catch(() => setQrUrl(""));
-  }, [order, points]);
-
   if (q.isLoading) return <div className="p-8 text-center text-muted-foreground">กำลังโหลด...</div>;
   if (!order) return <div className="p-8 text-center text-muted-foreground">ไม่พบบิล</div>;
 
-  const runMutation = async (fn: () => Promise<unknown>) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await fn();
-      await qc.invalidateQueries({ queryKey: ["hub-orders"] });
-    } catch (e) {
-      const message = e instanceof HubApiError ? e.message : "แก้ไขบิลไม่สำเร็จ";
-      toast.error(message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Add a cup: clone every column of a representative row (the hub assigns a
-  // fresh id) so it lands under the same order_no. quantity is always 1 — each
-  // cup is its own salefront row, matching how checkout rings them up.
-  const addCup = (rep: SaleRow) =>
-    runMutation(() =>
-      hub.insert("salefront", {
-        date: rep.date,
-        customer_name: rep.customer_name,
-        menu_name: rep.menu_name,
-        variant: rep.variant,
-        quantity: 1,
-        sweetness: rep.sweetness,
-        container: rep.container,
-        addons: rep.addons,
-        addon_price: rep.addon_price,
-        total_price: rep.total_price,
-        cashier: rep.cashier,
-        order_no: rep.order_no,
-        payment_method: rep.payment_method,
-        is_free: rep.is_free,
-      }),
-    );
-
-  const removeCup = (rowIds: number[]) =>
-    runMutation(() => hub.remove("salefront", Math.max(...rowIds)));
-
-  const removeLine = (rowIds: number[]) =>
-    runMutation(async () => {
-      for (const rid of rowIds) await hub.remove("salefront", rid);
-    });
+  // Voided bills carry total 0; show the original amount struck through so the
+  // cashier still sees what the cancelled bill was worth.
+  const grossTotal = order.items.reduce((n, i) => n + Number(i.total_price), 0);
 
   const saveImage = async () => {
     if (!receiptRef.current || saving) return;
@@ -134,6 +103,22 @@ function HistoryDetail() {
       toast.error("บันทึกรูปบิลไม่สำเร็จ");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const voidBill = async () => {
+    if (voiding) return;
+    if (!window.confirm(`ยกเลิกบิล #${order.orderNo}? การยกเลิกจะไม่นับยอดบิลนี้`)) return;
+    setVoiding(true);
+    try {
+      await hub.voidOrder(order.orderNo);
+      await qc.invalidateQueries({ queryKey: ["hub-orders"] });
+      toast.success("ยกเลิกบิลแล้ว");
+    } catch (e) {
+      const message = e instanceof HubApiError ? e.message : "ยกเลิกบิลไม่สำเร็จ";
+      toast.error(message);
+    } finally {
+      setVoiding(false);
     }
   };
 
@@ -150,16 +135,10 @@ function HistoryDetail() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-bold">บิล #{order.orderNo}</h1>
-        {canEdit && (
-          <button
-            onClick={() => setEditMode((v) => !v)}
-            className={`ml-auto flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium ${
-              editMode ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-            }`}
-          >
-            {editMode ? <Check className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-            {editMode ? "เสร็จ" : "แก้ไข"}
-          </button>
+        {order.voided && (
+          <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-semibold text-destructive">
+            ยกเลิกแล้ว
+          </span>
         )}
       </header>
 
@@ -184,7 +163,6 @@ function HistoryDetail() {
             <ul className="divide-y divide-border">
               {lines.map((line) => {
                 const it = line.rep;
-                const count = line.rowIds.length;
                 const addonNames: string[] = (() => {
                   try {
                     return JSON.parse(it.addons || "[]");
@@ -197,12 +175,14 @@ function HistoryDetail() {
                 );
                 return (
                   <li
-                    key={line.rowIds.join(",")}
+                    key={[it.menu_name, it.addons, it.is_free, it.total_price].join("|")}
                     className="flex items-start justify-between gap-3 py-2 text-sm"
                   >
                     <div className="min-w-0">
                       <p className="font-medium">
-                        {count > 1 && <span className="text-muted-foreground">{count}x </span>}
+                        {line.count > 1 && (
+                          <span className="text-muted-foreground">{line.count}x </span>
+                        )}
                         {it.menu_name}
                         {it.is_free === "1" && (
                           <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
@@ -214,36 +194,9 @@ function HistoryDetail() {
                         <p className="text-xs text-muted-foreground">{optionParts.join(", ")}</p>
                       )}
                     </div>
-                    {editMode ? (
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <button
-                          onClick={() => removeCup(line.rowIds)}
-                          disabled={busy}
-                          className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 disabled:opacity-50"
-                        >
-                          <Minus className="h-3 w-3" />
-                        </button>
-                        <span className="w-5 text-center text-sm font-semibold">{count}</span>
-                        <button
-                          onClick={() => addCup(it)}
-                          disabled={busy}
-                          className="grid h-8 w-8 place-items-center rounded-full bg-muted text-foreground hover:bg-muted/80 disabled:opacity-50"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={() => removeLine(line.rowIds)}
-                          disabled={busy}
-                          className="ml-1 text-muted-foreground hover:text-destructive disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="ml-3 shrink-0 font-semibold">
-                        {formatTHB(Number(it.total_price) * count)}
-                      </span>
-                    )}
+                    <span className="ml-3 shrink-0 font-semibold">
+                      {formatTHB(Number(it.total_price) * line.count)}
+                    </span>
                   </li>
                 );
               })}
@@ -251,30 +204,40 @@ function HistoryDetail() {
 
             <div className="mt-3 flex justify-between border-t border-dashed border-border pt-3 text-lg font-bold">
               <span>ยอดรวม</span>
-              <span>{formatTHB(order.total)}</span>
+              <span className={order.voided ? "text-muted-foreground line-through" : ""}>
+                {formatTHB(order.voided ? grossTotal : order.total)}
+              </span>
             </div>
+            {order.voided && (
+              <p className="mt-1 text-right text-xs font-semibold text-destructive">
+                บิลนี้ถูกยกเลิก
+              </p>
+            )}
           </div>
 
-          {qrUrl && (
+          {showQr && qrUrl && (
             <div className="mt-4 rounded-2xl border border-border bg-card p-5 text-center">
-              <p className="text-sm font-semibold whitespace-nowrap">สะสม {points} แต้ม</p>
+              <p className="text-sm font-semibold whitespace-nowrap">สะสม {claimPoints} แต้ม</p>
               <img
                 src={qrUrl}
                 alt="QR รับแต้มสะสม"
                 className="mx-auto mt-3 h-40 w-40 rounded-xl border border-border"
               />
+              <p className="mt-3 text-lg font-bold tracking-[0.3em] whitespace-nowrap">
+                {claimCode}
+              </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                แสกน QR ที่หน้าสะสมแต้มของลูกค้าเพื่อรับ {points} แต้ม
+                แสกน QR หรือกรอกรหัสที่หน้าสะสมแต้มของลูกค้าเพื่อรับ {claimPoints} แต้ม
               </p>
             </div>
           )}
-        </div>
 
-        {editMode && (
-          <p className="mt-3 px-1 text-center text-xs text-muted-foreground">
-            การแก้ไขบิลย้อนหลังจะไม่ปรับยอดสรุปกะที่ปิดไปแล้ว
-          </p>
-        )}
+          {!order.voided && claimStatus === "claimed" && (
+            <div className="mt-4 rounded-2xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+              ลูกค้ารับแต้มบิลนี้แล้ว
+            </div>
+          )}
+        </div>
 
         <button
           onClick={saveImage}
@@ -284,6 +247,17 @@ function HistoryDetail() {
           <ImageDown className="h-4 w-4" />
           {saving ? "กำลังบันทึก..." : "บันทึกรูปบิล"}
         </button>
+
+        {isAdmin && !order.voided && (
+          <button
+            onClick={voidBill}
+            disabled={voiding}
+            className="mt-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-md border border-destructive/40 text-sm font-medium text-destructive hover:bg-destructive/5 disabled:opacity-50"
+          >
+            <Ban className="h-4 w-4" />
+            {voiding ? "กำลังยกเลิก..." : "ยกเลิกบิล (Void)"}
+          </button>
+        )}
       </main>
     </div>
   );
