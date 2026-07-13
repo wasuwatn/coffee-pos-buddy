@@ -20,7 +20,10 @@ function HistoryPage() {
 
   const todayStr = today();
   const todayOrders = orders.filter((o) => o.date === todayStr);
+  // Voided bills already carry total 0 (see groupOrders), so summing o.total is
+  // enough — but exclude them from the bill count too.
   const todayTotal = todayOrders.reduce((n, o) => n + o.total, 0);
+  const todayBillCount = todayOrders.filter((o) => !o.voided).length;
 
   const groups = orders.reduce<Record<string, typeof orders>>((acc, o) => {
     const key = new Date(o.date).toLocaleDateString("th-TH", {
@@ -45,7 +48,7 @@ function HistoryPage() {
         <div className="rounded-2xl bg-primary p-5 text-primary-foreground shadow-lg shadow-primary/20">
           <p className="text-xs opacity-90">ยอดขายวันนี้</p>
           <p className="mt-1 text-3xl font-bold">{formatTHB(todayTotal)}</p>
-          <p className="mt-1 text-xs opacity-90">{todayOrders.length} บิล</p>
+          <p className="mt-1 text-xs opacity-90">{todayBillCount} บิล</p>
         </div>
 
         {q.isLoading ? (
@@ -74,13 +77,28 @@ function HistoryPage() {
                           <Icon className="h-5 w-5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold">บิล #{o.orderNo}</p>
+                          <p className="text-sm font-semibold">
+                            บิล #{o.orderNo}
+                            {o.voided && (
+                              <span className="ml-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
+                                ยกเลิก
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {o.items.length} รายการ · {o.cashier}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold">{formatTHB(o.total)}</p>
+                          <p
+                            className={`font-bold ${o.voided ? "text-muted-foreground line-through" : ""}`}
+                          >
+                            {formatTHB(
+                              o.voided
+                                ? o.items.reduce((n, i) => n + Number(i.total_price), 0)
+                                : o.total,
+                            )}
+                          </p>
                         </div>
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </Link>

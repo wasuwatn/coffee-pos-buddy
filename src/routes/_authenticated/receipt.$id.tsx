@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { domToBlob } from "modern-screenshot";
 import { toast } from "sonner";
 import { useOrders } from "@/lib/hub/orders";
 import { formatTHB } from "@/lib/cart-store";
 import { claimUrl } from "@/lib/hub/pos-helpers";
+import { saveNodeAsImage } from "@/lib/save-image";
 import { CheckCircle2, Home, ImageDown, Receipt as ReceiptIcon } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/receipt/$id")({
@@ -48,52 +48,14 @@ function ReceiptPage() {
   const saveReceiptImage = async () => {
     if (!receiptRef.current || saving) return;
     setSaving(true);
-    // Capture a hidden clone pinned to a generous fixed width instead of the
-    // live node. modern-screenshot can't read the Google Fonts stylesheet's
-    // CSSOM (it's cross-origin without a matching `crossorigin` attribute),
-    // so its custom @font-face embedding silently fails and the capture
-    // falls back to a wider generic font — on a narrow phone viewport that's
-    // enough to wrap labels that fit on one line on screen. Extra width
-    // removes the ambiguity regardless of which font actually gets embedded.
-    // The clone must stay clipped via a zero-size `overflow: hidden`
-    // wrapper, not shoved off-screen with a huge negative offset — the
-    // latter makes modern-screenshot render an empty canvas.
-    const clone = receiptRef.current.cloneNode(true) as HTMLDivElement;
-    clone.style.width = "400px";
-    const captureHost = document.createElement("div");
-    captureHost.style.position = "absolute";
-    captureHost.style.top = "0";
-    captureHost.style.left = "0";
-    captureHost.style.width = "0";
-    captureHost.style.height = "0";
-    captureHost.style.overflow = "hidden";
-    captureHost.appendChild(clone);
-    document.body.appendChild(captureHost);
     try {
-      const blob = await domToBlob(clone, { scale: 2, backgroundColor: "#ffffff" });
-      const file = new File([blob], `ใบเสร็จ-${order.orderNo}.png`, { type: "image/png" });
-
-      // Prefer the native share sheet on phones — it offers "Save Image" to
-      // Photos as well as sending to chat apps. Fall back to a plain download.
-      if (typeof navigator !== "undefined" && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `ใบเสร็จ #${order.orderNo}` });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        toast.success("บันทึกรูปใบเสร็จแล้ว");
-      }
+      const result = await saveNodeAsImage(receiptRef.current, `ใบเสร็จ-${order.orderNo}.png`);
+      if (result === "downloaded") toast.success("บันทึกรูปใบเสร็จแล้ว");
     } catch (e) {
       // User dismissing the share sheet is not an error.
       if (e instanceof DOMException && e.name === "AbortError") return;
       toast.error("บันทึกรูปใบเสร็จไม่สำเร็จ");
     } finally {
-      captureHost.remove();
       setSaving(false);
     }
   };

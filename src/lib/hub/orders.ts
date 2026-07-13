@@ -22,6 +22,7 @@ export type SaleRow = {
   order_no: string;
   payment_method: string;
   is_free: string;
+  status?: string; // "void" for a soft-voided cup; undefined/"" for a normal sale
 };
 
 export type Order = {
@@ -32,6 +33,7 @@ export type Order = {
   paymentMethod: string;
   items: SaleRow[];
   total: number;
+  voided: boolean; // every cup voided — kept in history but excluded from totals
 };
 
 export function groupOrders(rows: SaleRow[]): Order[] {
@@ -44,6 +46,10 @@ export function groupOrders(rows: SaleRow[]): Order[] {
   const orders: Order[] = [];
   for (const [orderNo, items] of map) {
     const first = items[0];
+    // A voided bill has all its cups flagged; its total drops to 0 so it never
+    // inflates day/shift sums, but the rows stay so history can show it struck
+    // through with a "ยกเลิก" badge.
+    const voided = items.every((i) => i.status === "void");
     orders.push({
       orderNo,
       date: first.date,
@@ -51,7 +57,10 @@ export function groupOrders(rows: SaleRow[]): Order[] {
       customerName: first.customer_name,
       paymentMethod: first.payment_method || "Cash",
       items,
-      total: items.reduce((n, i) => n + Number(i.total_price), 0),
+      total: items
+        .filter((i) => i.status !== "void")
+        .reduce((n, i) => n + Number(i.total_price), 0),
+      voided,
     });
   }
   orders.sort(

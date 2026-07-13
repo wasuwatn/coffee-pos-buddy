@@ -168,7 +168,11 @@ export const hub = {
   insert<T = Record<string, unknown>>(table: string, data: Record<string, unknown>) {
     return req<T>("POST", `/api/${table}`, data);
   },
-  update<T = Record<string, unknown>>(table: string, id: string | number, data: Record<string, unknown>) {
+  update<T = Record<string, unknown>>(
+    table: string,
+    id: string | number,
+    data: Record<string, unknown>,
+  ) {
     return req<T>("PUT", `/api/${table}/${encodeURIComponent(id)}`, data);
   },
   remove(table: string, id: string | number) {
@@ -187,6 +191,22 @@ export const hub = {
     ),
   checkoutPos: (payload: CheckoutPayload) =>
     req<CheckoutSaleRow[] | { duplicate: true }>("POST", "/api/checkout/pos", payload),
+  // Loyalty QR for a bill in history: the receipt claim code the hub minted at
+  // checkout, looked up by order (the checkout response's code isn't persisted
+  // client-side). status is "pending" while still claimable, "claimed" once the
+  // customer redeemed it; claim_code is null when there's nothing to claim.
+  receiptClaim: (orderNo: string) =>
+    req<{ claim_code: string | null; points: number; status: string | null }>(
+      "GET",
+      `/api/points/receipt/${encodeURIComponent(orderNo)}`,
+    ),
+  // Soft-void a whole bill (Admin only, enforced server-side). Rejected with a
+  // HubApiError if the bill already had its loyalty points claimed or spent.
+  voidOrder: (orderNo: string) =>
+    req<{ voided: true; order_no: string; rows: number }>(
+      "POST",
+      `/api/salefront/void/${encodeURIComponent(orderNo)}`,
+    ),
   redemptionLookup: (code: string) =>
     req<RedemptionLookup>("GET", `/api/redemption/${encodeURIComponent(code)}`),
   redemptionUse: (code: string) =>
