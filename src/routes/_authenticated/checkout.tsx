@@ -100,6 +100,7 @@ function CheckoutPage() {
         const addonNames = item.modifiers.flatMap((m) => m.optionNames);
         const addonPrice = item.modifiers.reduce((n, m) => n + m.priceChange, 0);
         for (let i = 0; i < item.qty; i++) {
+          const isFree = i < item.freeQty;
           sales.push({
             date: today(),
             customer_name: customerName.trim() || "Walk-in",
@@ -113,9 +114,9 @@ function CheckoutPage() {
             container: "",
             addons: JSON.stringify(addonNames),
             addon_price: addonPrice,
-            total_price: item.price,
+            total_price: isFree ? 0 : item.price,
             cashier: user?.username ?? "",
-            is_free: "0",
+            is_free: isFree ? "1" : "0",
             promotion_id: "",
           });
         }
@@ -191,13 +192,20 @@ function CheckoutPage() {
                 <div className="flex gap-2">
                   <span className="font-semibold text-muted-foreground">{i.qty}x</span>
                   <div>
-                    <p>{i.name}</p>
+                    <p>
+                      {i.name}
+                      {i.freeQty > 0 && (
+                        <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          ฟรี {i.freeQty} แก้ว
+                        </span>
+                      )}
+                    </p>
                     {i.options && (
                       <p className="mt-0.5 text-xs text-muted-foreground">{i.options.join(", ")}</p>
                     )}
                   </div>
                 </div>
-                <span className="font-medium">{formatTHB(i.price * i.qty)}</span>
+                <span className="font-medium">{formatTHB((i.qty - i.freeQty) * i.price)}</span>
               </li>
             ))}
           </ul>
