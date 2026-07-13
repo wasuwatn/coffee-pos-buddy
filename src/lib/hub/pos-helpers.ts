@@ -17,3 +17,22 @@ export function claimUrl(code: string): string {
   ).replace(/\/$/, "");
   return `${base}/customer.html?claim=${code}`;
 }
+
+// Loyalty QR for a bill viewed in history. Unlike claimUrl above (a one-time
+// claim code the hub minted at checkout), a past bill has no stored code — the
+// receipt's code only ever lived in sessionStorage. So the history QR carries
+// the order number plus a locally-derived point total (points = number of
+// non-free cups), which recomputes whenever the bill is edited. This is a NEW
+// contract: the hub's customer.html must accept `?order=&points=` in addition
+// to the existing `?claim=CODE` form.
+export function orderClaimUrl(orderNo: string, points: number): string {
+  const params = `order=${encodeURIComponent(orderNo)}&points=${points}`;
+  const liffId = import.meta.env.VITE_LIFF_ID as string | undefined;
+  if (liffId) return `https://liff.line.me/${liffId}?${params}`;
+  const base = (
+    (import.meta.env.VITE_PORTAL_BASE as string | undefined) ||
+    (import.meta.env.VITE_API_BASE as string | undefined) ||
+    ""
+  ).replace(/\/$/, "");
+  return `${base}/customer.html?${params}`;
+}
