@@ -156,6 +156,9 @@ function HistoryDetail() {
                   year: "numeric",
                 })}
               </p>
+              {order.customerName && order.customerName !== "Walk-in" && (
+                <p>ลูกค้า: {order.customerName}</p>
+              )}
               {order.cashier && <p>แคชเชียร์: {order.cashier}</p>}
               <p>ชำระเงินโดย: {PAY_LABEL[order.paymentMethod] ?? order.paymentMethod}</p>
             </div>

@@ -111,6 +111,9 @@ function ReceiptPage() {
           </ul>
 
           <div className="space-y-1 border-t border-dashed border-border pt-3 text-sm">
+            {order.customerName && order.customerName !== "Walk-in" && (
+              <Row label="ลูกค้า" value={order.customerName} />
+            )}
             <Row label="ยอดรวม" value={formatTHB(order.total)} bold />
             <Row label="ชำระโดย" value={PAY_LABEL[order.paymentMethod] ?? order.paymentMethod} />
           </div>
