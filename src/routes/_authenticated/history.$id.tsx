@@ -52,7 +52,10 @@ function HistoryDetail() {
   const claimCode = claim.data?.claim_code ?? null;
   const claimStatus = claim.data?.status ?? null;
   const claimPoints = claim.data?.points ?? 0;
-  const showQr = !order?.voided && !!claimCode && claimStatus === "pending";
+  // Only "claimed" hides the QR (it's been redeemed already) — anything else
+  // (including a missing/unexpected status alongside a real claim code) is
+  // still treated as claimable so the QR isn't silently dropped.
+  const showQr = !order?.voided && !!claimCode && claimStatus !== "claimed";
 
   // Regenerate the QR image whenever the claim code changes.
   useEffect(() => {
