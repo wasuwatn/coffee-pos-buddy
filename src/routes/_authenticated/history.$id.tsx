@@ -245,6 +245,22 @@ function HistoryDetail() {
           )}
         </div>
 
+        {/* On-screen only (outside the capture root, so it never lands in the
+            saved bill image): explain why the loyalty QR is absent instead of
+            failing silently. The QR needs a receipt claim code the hub mints at
+            checkout — old/pre-loyalty bills, bills rung with no active points
+            promotion, and every-cup-free bills simply never got one, and a hub
+            that can't reach /api/points/receipt surfaces here as a load error. */}
+        {!order.voided && !showQr && claimStatus !== "claimed" && (
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            {claim.isLoading
+              ? "กำลังโหลดรหัสรับแต้ม..."
+              : claim.isError
+                ? "โหลดรหัสรับแต้มไม่สำเร็จ"
+                : "บิลนี้ไม่มีรหัสรับแต้มสะสม"}
+          </p>
+        )}
+
         <button
           onClick={saveImage}
           disabled={saving}
