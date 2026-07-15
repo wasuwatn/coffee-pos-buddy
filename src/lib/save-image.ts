@@ -1,5 +1,25 @@
 import { domToBlob } from "modern-screenshot";
 
+// Cloned <img> elements (e.g. the loyalty QR, set as a data: URL a moment
+// before the user hits "save") need their own decode pass in the new node —
+// wait for that before handing the clone to the capture library, or a QR
+// that hasn't finished decoding yet can come out blank in the exported PNG.
+async function waitForImages(root: HTMLElement): Promise<void> {
+  await Promise.all(
+    Array.from(root.querySelectorAll("img")).map(async (img) => {
+      try {
+        await img.decode();
+      } catch {
+        if (img.complete) return;
+        await new Promise<void>((resolve) => {
+          img.addEventListener("load", () => resolve(), { once: true });
+          img.addEventListener("error", () => resolve(), { once: true });
+        });
+      }
+    }),
+  );
+}
+
 // Capture a DOM node as a PNG and hand it to the user (native share sheet on
 // phones, plain download elsewhere). Shared by the receipt and history-detail
 // bills. The caller owns UI concerns (loading state, success/error toasts);
@@ -33,6 +53,7 @@ export async function saveNodeAsImage(
   captureHost.appendChild(clone);
   document.body.appendChild(captureHost);
   try {
+    await waitForImages(clone);
     const blob = await domToBlob(clone, { scale: 2, backgroundColor: "#ffffff" });
     const file = new File([blob], filename, { type: "image/png" });
 
