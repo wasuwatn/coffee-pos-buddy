@@ -8,7 +8,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "เข้าสู่ระบบ — Kafe POS" },
+      { title: "เข้าสู่ระบบ — KPOS" },
       { name: "description", content: "เข้าสู่ระบบ POS ร้านกาแฟ" },
     ],
   }),
@@ -55,7 +55,7 @@ function AuthPage() {
             <Coffee className="h-8 w-8" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Kafe POS</h1>
+            <h1 className="text-2xl font-bold">KPOS</h1>
             <p className="mt-1 text-sm text-muted-foreground">เข้าสู่ระบบด้วยบัญชีพนักงาน</p>
           </div>
         </div>

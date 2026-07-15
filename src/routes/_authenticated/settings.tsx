@@ -193,9 +193,7 @@ function SettingsPage() {
           ออกจากระบบ
         </button>
 
-        <p className="pt-4 text-center text-xs text-muted-foreground">
-          Kafe POS · เชื่อมต่อ SMA08 hub
-        </p>
+        <p className="pt-4 text-center text-xs text-muted-foreground">KPOS · เชื่อมต่อ SMA08 hub</p>
       </main>
     </div>
   );

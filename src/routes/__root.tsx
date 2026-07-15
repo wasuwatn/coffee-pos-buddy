@@ -78,14 +78,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         name: "viewport",
         content: "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
       },
-      { name: "theme-color", content: "#2d8ac9" },
-      { title: "Kafe POS — ระบบขายหน้าร้านกาแฟ" },
+      { name: "theme-color", content: "#b7410e" },
+      { title: "KPOS — ระบบขายหน้าร้านกาแฟ" },
       {
         name: "description",
         content:
           "POS สำหรับร้านกาแฟ ใช้ง่ายบนไอโฟน จัดการเมนู เก็บเงิน และดูประวัติการขายในที่เดียว",
       },
-      { property: "og:title", content: "Kafe POS — ระบบขายหน้าร้านกาแฟ" },
+      { property: "og:title", content: "KPOS — ระบบขายหน้าร้านกาแฟ" },
       { property: "og:description", content: "POS สำหรับร้านกาแฟ ใช้ง่ายบนไอโฟน" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -98,7 +98,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "Kafe POS" },
+      { name: "apple-mobile-web-app-title", content: "KPOS" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
