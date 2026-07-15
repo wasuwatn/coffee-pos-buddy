@@ -78,7 +78,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         name: "viewport",
         content: "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
       },
-      { name: "theme-color", content: "#b7410e" },
+      { name: "theme-color", content: "#b6c684" },
       { title: "KPOS — ระบบขายหน้าร้านกาแฟ" },
       {
         name: "description",
