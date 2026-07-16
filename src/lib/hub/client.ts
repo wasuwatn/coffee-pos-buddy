@@ -155,6 +155,22 @@ export const hub = {
       return r;
     });
   },
+  // Usernames only, no auth required — feeds the POS login screen's "tap
+  // your name" picker before a session exists.
+  staffList: () => req<string[]>("GET", "/api/auth/staff-list"),
+  async loginWithPin(username: string, pin: string) {
+    const res = await req<{ token: string; user: Omit<HubUser, "mustChangePassword"> }>(
+      "POST",
+      "/api/auth/pin-login",
+      { username, pin },
+    );
+    const user: HubUser = { ...res.user, mustChangePassword: false };
+    setSession(res.token, user);
+    return user;
+  },
+  setPin(currentPassword: string, newPin: string) {
+    return req<{ ok: true }>("POST", "/api/auth/set-pin", { currentPassword, newPin });
+  },
   list<T = Record<string, unknown>>(table: string, params?: Record<string, string | number>) {
     const qs =
       params && Object.keys(params).length
