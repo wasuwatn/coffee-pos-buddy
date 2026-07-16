@@ -18,6 +18,7 @@ import {
 } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { formatTHB } from "@/lib/cart-store";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import {
   LogOut,
   Store,
@@ -30,6 +31,7 @@ import {
   Tag,
   SlidersHorizontal,
   Layers,
+  Hash,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,7 +40,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
 });
 
 type ActivePage =
-  "main" | "shop" | "shift" | "password" | "menu" | "category" | "modifier" | "childmenu";
+  "main" | "shop" | "shift" | "password" | "pin" | "menu" | "category" | "modifier" | "childmenu";
 
 function SettingsPage() {
   const navigate = useNavigate();
@@ -120,6 +122,14 @@ function SettingsPage() {
     );
   }
 
+  if (activePage === "pin") {
+    return (
+      <SubPage title="เปลี่ยน PIN" onBack={() => setActivePage("main")}>
+        <ChangePinSection onDone={() => setActivePage("main")} />
+      </SubPage>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-md">
       <header
@@ -182,6 +192,11 @@ function SettingsPage() {
             icon={<KeyRound className="h-5 w-5 text-purple-500" />}
             label="เปลี่ยนรหัสผ่าน"
             onClick={() => setActivePage("password")}
+          />
+          <MenuRow
+            icon={<Hash className="h-5 w-5 text-purple-500" />}
+            label="เปลี่ยน PIN (เข้าสู่ระบบ POS)"
+            onClick={() => setActivePage("pin")}
           />
         </section>
 
@@ -436,6 +451,62 @@ function ChangePasswordSection({ onDone }: { onDone: () => void }) {
           onChange={(e) => setNext(e.target.value)}
           className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
         />
+      </div>
+      <button
+        type="submit"
+        disabled={busy}
+        className="h-11 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+      >
+        {busy ? "กำลังบันทึก..." : "บันทึก"}
+      </button>
+    </form>
+  );
+}
+
+function ChangePinSection({ onDone }: { onDone: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pin.length !== 4) {
+      toast.error("PIN ต้องมี 4 หลัก");
+      return;
+    }
+    setBusy(true);
+    try {
+      await hub.setPin(current, pin);
+      toast.success("เปลี่ยน PIN แล้ว");
+      onDone();
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "เปลี่ยน PIN ไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+      <div>
+        <label className="mb-1.5 block text-sm font-medium">รหัสผ่านปัจจุบัน</label>
+        <input
+          type="password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+        />
+      </div>
+      <div>
+        <label className="mb-1.5 block text-sm font-medium">PIN ใหม่ (4 หลัก)</label>
+        <InputOTP maxLength={4} value={pin} onChange={setPin} pattern="^[0-9]*$">
+          <InputOTPGroup>
+            <InputOTPSlot index={0} className="h-11 w-11" />
+            <InputOTPSlot index={1} className="h-11 w-11" />
+            <InputOTPSlot index={2} className="h-11 w-11" />
+            <InputOTPSlot index={3} className="h-11 w-11" />
+          </InputOTPGroup>
+        </InputOTP>
       </div>
       <button
         type="submit"
