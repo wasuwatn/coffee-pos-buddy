@@ -10,6 +10,7 @@ import {
   categoryKind,
   optionKind,
   categoryColor,
+  PALETTE,
   type MenuItem,
   type Addon,
   type Category,
@@ -1300,26 +1301,38 @@ function MenuManageSection() {
           <option value="Inactive">Inactive</option>
         </select>
 
-        <div className="flex items-center gap-3">
-          <label htmlFor="menu-color" className="text-sm font-medium">
-            สีการ์ดเมนู
-          </label>
-          <input
-            id="menu-color"
-            type="color"
-            value={form.color || categoryColor(form.category, categories.map((c) => c.name))}
-            onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
-            className="h-9 w-14 cursor-pointer rounded-md border border-input bg-background p-1"
-          />
-          {form.color && (
-            <button
-              type="button"
-              onClick={() => setForm((f) => ({ ...f, color: "" }))}
-              className="text-xs font-semibold text-muted-foreground underline"
-            >
-              ใช้สีตามหมวดหมู่
-            </button>
-          )}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">สีการ์ดเมนู</p>
+            {form.color && (
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, color: "" }))}
+                className="text-xs font-semibold text-muted-foreground underline"
+              >
+                ใช้สีตามหมวดหมู่
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {PALETTE.map((c) => {
+              const active =
+                form.color === c ||
+                (!form.color && categoryColor(form.category, categories.map((cat) => cat.name)) === c);
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, color: c }))}
+                  aria-label={c}
+                  className={`h-9 w-9 rounded-full border-2 transition ${
+                    active ? "border-primary ring-2 ring-primary/30" : "border-border"
+                  }`}
+                  style={{ background: c }}
+                />
+              );
+            })}
+          </div>
         </div>
 
         <div className="space-y-2">
