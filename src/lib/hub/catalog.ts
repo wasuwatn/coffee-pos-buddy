@@ -126,18 +126,19 @@ export type Catalog = {
   settings: ShopSettings | null;
 };
 
-// A small fixed palette (same one seedSampleMenu.ts used to ship) — used both
-// to auto-assign a category's color and as the preset swatches a menu item
-// can pick from in Settings (see MenuManageSection).
+// A small fixed palette — used both to auto-assign a category's color and as
+// the preset swatches a menu item can pick from in Settings (see
+// MenuManageSection). Bright/saturated on purpose so cards stay legible with
+// white text over them.
 export const PALETTE = [
-  "#2d8ac9",
-  "#1a4a6e",
-  "#6b3a2a",
-  "#c9a568",
-  "#4a6741",
-  "#c17c74",
-  "#e88aab",
-  "#e8b84a",
+  "#2f9bf0",
+  "#ff6b4a",
+  "#2ecc8f",
+  "#ffb020",
+  "#a855f7",
+  "#ff4d8d",
+  "#14c9c9",
+  "#f7d716",
 ];
 export function categoryColor(category: string, categories: string[]) {
   const i = Math.max(0, categories.indexOf(category));
