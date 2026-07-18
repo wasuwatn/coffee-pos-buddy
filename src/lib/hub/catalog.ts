@@ -73,6 +73,30 @@ export function parseModifierCategories(addons: Addon[]): ModifierCategory[] {
     options: addons.filter((a) => a.kind === optionKind(c.id)),
   }));
 }
+// Links a menu to an *optional* modifier category it should offer at the
+// sell screen. The three mandatory categories (see MANDATORY_MODIFIER_NAMES
+// below) are never stored here — they're implied for every menu. Table may
+// not exist on the hub yet, so useCatalog() tolerates it 404ing.
+export type MenuModifier = { id: number; menu_id: string; category_id: number };
+
+export const MANDATORY_MODIFIER_NAMES = ["ภาชนะ", "ความหวาน", "ของเพิ่ม"];
+export function isMandatoryCategory(c: ModifierCategory): boolean {
+  return MANDATORY_MODIFIER_NAMES.includes(c.name);
+}
+
+// The categories a given menu should show: the mandatory ones always, plus
+// whichever optional ones were linked to it in menu_modifiers.
+export function modifierCategoriesForMenu(
+  menuId: string,
+  categories: ModifierCategory[],
+  links: MenuModifier[],
+): ModifierCategory[] {
+  const linked = new Set(
+    links.filter((l) => l.menu_id === menuId).map((l) => l.category_id),
+  );
+  return categories.filter((c) => isMandatoryCategory(c) || linked.has(c.id));
+}
+
 export type Category = { id: number; name: string };
 export type Material = { id: string; category: string; item: string; unit: string; status: string };
 export type SetBom = { id: string; name: string; items: string };
@@ -93,6 +117,7 @@ export type Catalog = {
   categories: string[];
   childmenu: ChildMenu[];
   addons: Addon[];
+  menuModifiers: MenuModifier[];
   packagingbom: SetBom[];
   matprepbom: SetBom[];
   settings: ShopSettings | null;
@@ -119,11 +144,14 @@ export function useCatalog() {
   return useQuery({
     queryKey: ["hub-catalog"],
     queryFn: async (): Promise<Catalog> => {
-      const [menuname, childmenu, addons, packagingbom, matprepbom, settingsRows] =
+      const [menuname, childmenu, addons, menuModifiers, packagingbom, matprepbom, settingsRows] =
         await Promise.all([
           hub.list<MenuItem>("menuname"),
           hub.list<ChildMenu>("childmenu"),
           hub.list<Addon>("addons"),
+          // menu_modifiers may not exist on the hub yet — degrade to no
+          // per-menu links (every menu still gets the mandatory categories).
+          hub.list<MenuModifier>("menu_modifiers").catch(() => []),
           hub.list<SetBom>("packagingbom"),
           hub.list<SetBom>("matprepbom"),
           hub.list<ShopSettings>("settings"),
@@ -135,6 +163,7 @@ export function useCatalog() {
         categories,
         childmenu,
         addons,
+        menuModifiers,
         packagingbom,
         matprepbom,
         settings: settingsRows[0] ?? null,
