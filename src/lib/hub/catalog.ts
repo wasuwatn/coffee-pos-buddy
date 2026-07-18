@@ -126,9 +126,10 @@ export type Catalog = {
   settings: ShopSettings | null;
 };
 
-// A small fixed palette (same one seedSampleMenu.ts used to ship) — the hub's
-// menuname table has no color column, so category cards get one deterministically.
-const PALETTE = [
+// A small fixed palette (same one seedSampleMenu.ts used to ship) — used both
+// to auto-assign a category's color and as the preset swatches a menu item
+// can pick from in Settings (see MenuManageSection).
+export const PALETTE = [
   "#2d8ac9",
   "#1a4a6e",
   "#6b3a2a",
