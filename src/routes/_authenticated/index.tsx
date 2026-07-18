@@ -4,6 +4,7 @@ import {
   useCatalog,
   categoryColor,
   parseModifierCategories,
+  modifierCategoriesForMenu,
   type MenuItem,
 } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
@@ -164,7 +165,11 @@ function ProductOptionModal({
   onAdd: (item: Omit<CartItem, "qty" | "cartItemId" | "freeQty">, qty: number) => void;
 }) {
   const variants = catalog.childmenu.filter((c) => c.menu_name === product.name);
-  const categories = useMemo(() => parseModifierCategories(catalog.addons), [catalog.addons]);
+  const allCategories = useMemo(() => parseModifierCategories(catalog.addons), [catalog.addons]);
+  const categories = useMemo(
+    () => modifierCategoriesForMenu(product.id, allCategories, catalog.menuModifiers),
+    [product.id, allCategories, catalog.menuModifiers],
+  );
 
   const [childId, setChildId] = useState<string | null>(variants[0]?.id ?? null);
   // categoryId -> selected option names (single-select holds 0-1 entries)

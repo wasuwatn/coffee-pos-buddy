@@ -6,6 +6,7 @@ import {
   useCatalog,
   parseModifierCategories,
   isLegacyAddon,
+  isMandatoryCategory,
   categoryKind,
   optionKind,
   type MenuItem,
@@ -15,6 +16,7 @@ import {
   type Material,
   type ModifierCategory,
   type ModifierMode,
+  type MenuModifier,
 } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { formatTHB } from "@/lib/cart-store";
@@ -1102,6 +1104,7 @@ const blankMenuForm = {
   front_price: "",
   delivery_price: "",
   status: "Active" as const,
+  modifierCategoryIds: new Set<number>(),
 };
 
 function MenuManageSection() {
@@ -1114,6 +1117,13 @@ function MenuManageSection() {
     queryKey: ["hub-categories"],
     queryFn: () => hub.list<Category>("categories"),
   });
+  const addonList = useQuery({ queryKey: ["hub-addons"], queryFn: () => hub.list<Addon>("addons") });
+  // menu_modifiers may not exist on the hub yet — degrade to no links so the
+  // menu list/edit form still works, showing just the mandatory categories.
+  const menuModifierList = useQuery({
+    queryKey: ["hub-menu-modifiers"],
+    queryFn: () => hub.list<MenuModifier>("menu_modifiers").catch(() => []),
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<{
     category: string;
@@ -1121,11 +1131,17 @@ function MenuManageSection() {
     front_price: string;
     delivery_price: string;
     status: "Active" | "Inactive";
+    modifierCategoryIds: Set<number>;
   }>(blankMenuForm);
   const [busy, setBusy] = useState(false);
 
+  const modifierCategories = parseModifierCategories(addonList.data ?? []);
+  const mandatoryCategories = modifierCategories.filter(isMandatoryCategory);
+  const optionalCategories = modifierCategories.filter((c) => !isMandatoryCategory(c));
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["hub-menuname"] });
+    qc.invalidateQueries({ queryKey: ["hub-menu-modifiers"] });
     qc.invalidateQueries({ queryKey: ["hub-catalog"] });
   };
 
@@ -1134,14 +1150,27 @@ function MenuManageSection() {
     setForm(blankMenuForm);
   };
 
+  const toggleModifierCategory = (categoryId: number) => {
+    setForm((f) => {
+      const next = new Set(f.modifierCategoryIds);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return { ...f, modifierCategoryIds: next };
+    });
+  };
+
   const startEdit = (m: MenuItem) => {
     setEditingId(m.id);
+    const linkedIds = (menuModifierList.data ?? [])
+      .filter((l) => l.menu_id === m.id)
+      .map((l) => l.category_id);
     setForm({
       category: m.category || "",
       name: m.name,
       front_price: String(m.front_price ?? ""),
       delivery_price: String(m.delivery_price ?? ""),
       status: m.status === "Inactive" ? "Inactive" : "Active",
+      modifierCategoryIds: new Set(linkedIds),
     });
   };
 
@@ -1160,13 +1189,36 @@ function MenuManageSection() {
         delivery_price: Number(form.delivery_price) || 0,
         status: form.status,
       };
+      let menuId = editingId;
       if (editingId) {
         await hub.update("menuname", editingId, payload);
         toast.success("แก้ไขเมนูแล้ว");
       } else {
-        const id = nextMenuId(menuList.data ?? []);
-        await hub.insert("menuname", { id, ...payload });
+        menuId = nextMenuId(menuList.data ?? []);
+        await hub.insert("menuname", { id: menuId, ...payload });
         toast.success("เพิ่มเมนูแล้ว");
+      }
+      // Reconcile optional modifier-group links. Best-effort: menu_modifiers
+      // may not exist on the hub yet, so a failure here doesn't undo the
+      // menu save above — just surfaces its own toast.
+      try {
+        const existingLinks = (menuModifierList.data ?? []).filter((l) => l.menu_id === menuId);
+        const existingIds = new Set(existingLinks.map((l) => l.category_id));
+        const wantedIds = form.modifierCategoryIds;
+        const toAdd = [...wantedIds].filter((id) => !existingIds.has(id));
+        const toRemove = existingLinks.filter((l) => !wantedIds.has(l.category_id));
+        await Promise.all([
+          ...toAdd.map((categoryId) =>
+            hub.insert("menu_modifiers", { menu_id: menuId, category_id: categoryId }),
+          ),
+          ...toRemove.map((l) => hub.remove("menu_modifiers", l.id)),
+        ]);
+      } catch (linkErr) {
+        toast.error(
+          linkErr instanceof HubApiError
+            ? linkErr.message
+            : "บันทึกเมนูสำเร็จ แต่ตั้งค่ากลุ่มตัวเลือกไม่สำเร็จ",
+        );
       }
       cancelEdit();
       refresh();
@@ -1242,6 +1294,43 @@ function MenuManageSection() {
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
         </select>
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">กลุ่มตัวเลือก (Modifier)</p>
+          {mandatoryCategories.map((c) => (
+            <label
+              key={c.id}
+              className="flex items-center justify-between rounded-md border border-input bg-muted/40 px-3 py-2 text-sm"
+            >
+              <span className="flex items-center gap-2">
+                <input type="checkbox" checked disabled className="h-4 w-4" />
+                {c.name}
+              </span>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                บังคับ
+              </span>
+            </label>
+          ))}
+          {optionalCategories.length === 0 ? (
+            <p className="text-xs text-muted-foreground">ยังไม่มีกลุ่มตัวเลือกเพิ่มเติมให้เลือก</p>
+          ) : (
+            optionalCategories.map((c) => (
+              <label
+                key={c.id}
+                className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={form.modifierCategoryIds.has(c.id)}
+                  onChange={() => toggleModifierCategory(c.id)}
+                  className="h-4 w-4"
+                />
+                {c.name}
+              </label>
+            ))
+          )}
+        </div>
+
         <div className="flex gap-2">
           <button
             type="submit"
