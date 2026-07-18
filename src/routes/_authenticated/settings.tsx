@@ -9,6 +9,7 @@ import {
   isMandatoryCategory,
   categoryKind,
   optionKind,
+  categoryColor,
   type MenuItem,
   type Addon,
   type Category,
@@ -1104,6 +1105,7 @@ const blankMenuForm = {
   front_price: "",
   delivery_price: "",
   status: "Active" as const,
+  color: "",
   modifierCategoryIds: new Set<number>(),
 };
 
@@ -1131,6 +1133,7 @@ function MenuManageSection() {
     front_price: string;
     delivery_price: string;
     status: "Active" | "Inactive";
+    color: string;
     modifierCategoryIds: Set<number>;
   }>(blankMenuForm);
   const [busy, setBusy] = useState(false);
@@ -1170,6 +1173,7 @@ function MenuManageSection() {
       front_price: String(m.front_price ?? ""),
       delivery_price: String(m.delivery_price ?? ""),
       status: m.status === "Inactive" ? "Inactive" : "Active",
+      color: m.color || "",
       modifierCategoryIds: new Set(linkedIds),
     });
   };
@@ -1188,6 +1192,7 @@ function MenuManageSection() {
         front_price: Number(form.front_price) || 0,
         delivery_price: Number(form.delivery_price) || 0,
         status: form.status,
+        color: form.color || null,
       };
       let menuId = editingId;
       if (editingId) {
@@ -1295,6 +1300,28 @@ function MenuManageSection() {
           <option value="Inactive">Inactive</option>
         </select>
 
+        <div className="flex items-center gap-3">
+          <label htmlFor="menu-color" className="text-sm font-medium">
+            สีการ์ดเมนู
+          </label>
+          <input
+            id="menu-color"
+            type="color"
+            value={form.color || categoryColor(form.category, categories.map((c) => c.name))}
+            onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+            className="h-9 w-14 cursor-pointer rounded-md border border-input bg-background p-1"
+          />
+          {form.color && (
+            <button
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, color: "" }))}
+              className="text-xs font-semibold text-muted-foreground underline"
+            >
+              ใช้สีตามหมวดหมู่
+            </button>
+          )}
+        </div>
+
         <div className="space-y-2">
           <p className="text-sm font-medium">กลุ่มตัวเลือก (Modifier)</p>
           {mandatoryCategories.map((c) => (
@@ -1359,18 +1386,24 @@ function MenuManageSection() {
         ) : (
           (menuList.data ?? []).map((m) => (
             <div key={m.id} className="flex items-center justify-between px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">
-                  {m.name}
-                  {m.status === "Inactive" && (
-                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                      Inactive
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {m.category || "ไม่มีหมวดหมู่"} · {formatTHB(Number(m.front_price))}
-                </p>
+              <div className="flex items-center gap-3">
+                <span
+                  className="h-6 w-6 shrink-0 rounded-full border border-border"
+                  style={{ background: m.color || categoryColor(m.category, categories.map((c) => c.name)) }}
+                />
+                <div>
+                  <p className="text-sm font-medium">
+                    {m.name}
+                    {m.status === "Inactive" && (
+                      <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                        Inactive
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {m.category || "ไม่มีหมวดหมู่"} · {formatTHB(Number(m.front_price))}
+                  </p>
+                </div>
               </div>
               <div className="flex gap-3">
                 <button onClick={() => startEdit(m)} className="text-xs font-semibold text-primary">

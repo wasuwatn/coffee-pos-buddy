@@ -14,6 +14,9 @@ export type MenuItem = {
   front_price: number;
   delivery_price: number;
   status: string;
+  // Optional hex color (e.g. "#2d8ac9") for this menu's sell-screen card.
+  // Falls back to the deterministic per-category palette when unset.
+  color?: string | null;
 };
 export type ChildMenu = {
   id: string;

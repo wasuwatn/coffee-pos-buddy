@@ -88,7 +88,7 @@ function SellPage() {
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {filtered.map((p) => {
-              const color = categoryColor(p.category, catalog.data!.categories);
+              const color = p.color || categoryColor(p.category, catalog.data!.categories);
               return (
                 <button
                   key={p.id}
@@ -353,7 +353,7 @@ function ProductOptionModal({
                     menuId: product.id,
                     name: displayName,
                     price: unitPrice,
-                    color: categoryColor(product.category, catalog.categories),
+                    color: product.color || categoryColor(product.category, catalog.categories),
                     options: options.length > 0 ? options : undefined,
                     childId,
                     modifiers,
