@@ -16,6 +16,11 @@ export const Route = createFileRoute("/_authenticated/")({
   component: SellPage,
 });
 
+// Subtle grain for menu cards — SVG feTurbulence tiled as a background image,
+// blended in softly on top of the color gradient (see the grid card below).
+const CARD_NOISE_BG =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+
 function SellPage() {
   const catalog = useCatalog();
   const user = useHubUser();
@@ -98,8 +103,12 @@ function SellPage() {
                   <div
                     className="absolute inset-0 opacity-90"
                     style={{
-                      background: `linear-gradient(135deg, ${color} 0%, color-mix(in oklab, ${color} 60%, black) 100%)`,
+                      background: `linear-gradient(180deg, color-mix(in oklab, ${color} 92%, white) 0%, color-mix(in oklab, ${color} 88%, black) 100%)`,
                     }}
+                  />
+                  <div
+                    className="absolute inset-0 opacity-[0.06] mix-blend-overlay"
+                    style={{ backgroundImage: CARD_NOISE_BG, backgroundSize: "160px 160px" }}
                   />
                   <div className="relative flex h-full flex-col justify-center text-white">
                     <p className="line-clamp-3 break-words text-sm font-semibold leading-snug drop-shadow">
