@@ -111,7 +111,9 @@ function SellPage() {
           <div className="space-y-6">
             {sections.map(({ category, items }) => (
               <section key={category}>
-                <h2 className="mb-2 px-0.5 text-sm font-bold text-foreground">{category}</h2>
+                <h2 className="mb-2 border-b border-border/60 px-0.5 pb-1.5 text-sm font-bold text-foreground">
+                  {category}
+                </h2>
                 <div className="grid grid-cols-3 gap-3">
                   {items.map((p) => (
                     <MenuCard
