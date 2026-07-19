@@ -38,6 +38,23 @@ function SellPage() {
     return list.filter((p) => p.category === activeCat);
   }, [catalog.data, activeCat]);
 
+  // Group into category sections, in the catalog's own category order (any
+  // category not in that list — shouldn't normally happen — sorts last).
+  const sections = useMemo(() => {
+    const knownOrder = catalog.data?.categories ?? [];
+    const byCategory = new Map<string, MenuItem[]>();
+    filtered.forEach((p) => {
+      const key = p.category || "อื่นๆ";
+      if (!byCategory.has(key)) byCategory.set(key, []);
+      byCategory.get(key)!.push(p);
+    });
+    const orderedKeys = [
+      ...knownOrder.filter((c) => byCategory.has(c)),
+      ...[...byCategory.keys()].filter((k) => !knownOrder.includes(k)),
+    ];
+    return orderedKeys.map((category) => ({ category, items: byCategory.get(category)! }));
+  }, [filtered, catalog.data]);
+
   return (
     <div className="mx-auto max-w-md">
       <header
@@ -91,33 +108,22 @@ function SellPage() {
         ) : filtered.length === 0 ? (
           <EmptyMenu />
         ) : (
-          <div className="grid grid-cols-3 gap-3">
-            {filtered.map((p) => {
-              const color = p.color || categoryColor(p.category, catalog.data!.categories);
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedProduct(p)}
-                  className="group relative aspect-square overflow-hidden rounded-2xl border border-border bg-card p-3 text-left shadow-sm transition active:scale-95"
-                >
-                  <div
-                    className="absolute inset-0 opacity-90"
-                    style={{
-                      background: `linear-gradient(180deg, color-mix(in oklab, ${color} 92%, white) 0%, color-mix(in oklab, ${color} 88%, black) 100%)`,
-                    }}
-                  />
-                  <div
-                    className="absolute inset-0 opacity-20 mix-blend-overlay"
-                    style={{ backgroundImage: CARD_NOISE_BG, backgroundSize: "160px 160px" }}
-                  />
-                  <div className="relative flex h-full flex-col justify-center text-white">
-                    <p className="line-clamp-3 break-words text-sm font-semibold leading-snug drop-shadow">
-                      {p.name}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
+          <div className="space-y-6">
+            {sections.map(({ category, items }) => (
+              <section key={category}>
+                <h2 className="mb-2 px-0.5 text-sm font-bold text-foreground">{category}</h2>
+                <div className="grid grid-cols-3 gap-3">
+                  {items.map((p) => (
+                    <MenuCard
+                      key={p.id}
+                      product={p}
+                      categories={catalog.data!.categories}
+                      onSelect={() => setSelectedProduct(p)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </main>
@@ -159,6 +165,47 @@ function SellPage() {
         />
       )}
     </div>
+  );
+}
+
+// Layered box-shadow (tight contact shadow + short ambient + long soft
+// falloff) reads more like a real card lifted off the page than a single
+// flat shadow does.
+const CARD_SHADOW =
+  "0 1px 2px rgba(0,0,0,0.20), 0 4px 8px rgba(0,0,0,0.14), 0 12px 24px rgba(0,0,0,0.12)";
+
+function MenuCard({
+  product,
+  categories,
+  onSelect,
+}: {
+  product: MenuItem;
+  categories: string[];
+  onSelect: () => void;
+}) {
+  const color = product.color || categoryColor(product.category, categories);
+  return (
+    <button
+      onClick={onSelect}
+      style={{ boxShadow: CARD_SHADOW }}
+      className="group relative aspect-square overflow-hidden rounded-2xl border border-border bg-card p-3 text-left transition active:scale-95"
+    >
+      <div
+        className="absolute inset-0 opacity-90"
+        style={{
+          background: `linear-gradient(180deg, color-mix(in oklab, ${color} 92%, white) 0%, color-mix(in oklab, ${color} 88%, black) 100%)`,
+        }}
+      />
+      <div
+        className="absolute inset-0 opacity-30 mix-blend-overlay"
+        style={{ backgroundImage: CARD_NOISE_BG, backgroundSize: "160px 160px" }}
+      />
+      <div className="relative flex h-full flex-col justify-center text-white">
+        <p className="line-clamp-3 break-words text-sm font-semibold leading-snug drop-shadow">
+          {product.name}
+        </p>
+      </div>
+    </button>
   );
 }
 
