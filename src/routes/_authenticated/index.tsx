@@ -107,7 +107,7 @@ function SellPage() {
                     }}
                   />
                   <div
-                    className="absolute inset-0 opacity-[0.06] mix-blend-overlay"
+                    className="absolute inset-0 opacity-20 mix-blend-overlay"
                     style={{ backgroundImage: CARD_NOISE_BG, backgroundSize: "160px 160px" }}
                   />
                   <div className="relative flex h-full flex-col justify-center text-white">
