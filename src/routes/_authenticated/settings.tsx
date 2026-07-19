@@ -19,6 +19,7 @@ import {
   type ModifierCategory,
   type ModifierMode,
   type MenuModifier,
+  type ShopSettings,
 } from "@/lib/hub/catalog";
 import { useHubUser } from "@/lib/hub/session";
 import { formatTHB } from "@/lib/cart-store";
@@ -60,20 +61,9 @@ function SettingsPage() {
   };
 
   if (activePage === "shop") {
-    const s = catalog.data?.settings;
     return (
       <SubPage title="ข้อมูลร้านค้า" onBack={() => setActivePage("main")}>
-        <section className="rounded-2xl border border-border bg-card p-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Store className="h-4 w-4 text-primary" />
-            ข้อมูลร้าน
-          </div>
-          <Row label="ชื่อร้าน" value={s?.shop_name || "—"} />
-          <Row label="ที่อยู่" value={s?.shop_address || "—"} />
-          <Row label="โทรศัพท์" value={s?.shop_phone || "—"} />
-          <Row label="เลข PromptPay" value={s?.promptpay_id || "—"} />
-          <p className="pt-2 text-xs text-muted-foreground">แก้ไขข้อมูลร้านได้ที่แอป Mother</p>
-        </section>
+        <ShopSettingsSection />
       </SubPage>
     );
   }
@@ -526,6 +516,100 @@ function ChangePinSection({ onDone }: { onDone: () => void }) {
 // ---- Category management ---------------------------------------------------
 // Real categories table (added alongside this feature) — a proper add/edit/
 // delete list instead of retyping a category name per menu item.
+// ---- Shop settings ------------------------------------------------------
+function ShopSettingsSection() {
+  const qc = useQueryClient();
+  const list = useQuery({
+    queryKey: ["hub-settings"],
+    queryFn: () => hub.list<ShopSettings>("settings"),
+  });
+  const settings = list.data?.[0] ?? null;
+
+  const [editing, setEditing] = useState(false);
+  const [shopName, setShopName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const startEdit = () => {
+    setShopName(settings?.shop_name || "");
+    setEditing(true);
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settings) return;
+    const trimmed = shopName.trim();
+    if (!trimmed) {
+      toast.error("กรุณากรอกชื่อร้าน");
+      return;
+    }
+    setBusy(true);
+    try {
+      await hub.update("settings", settings.id, { shop_name: trimmed });
+      toast.success("บันทึกชื่อร้านแล้ว");
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["hub-settings"] });
+      qc.invalidateQueries({ queryKey: ["hub-catalog"] });
+    } catch (e2) {
+      toast.error(e2 instanceof HubApiError ? e2.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-4 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Store className="h-4 w-4 text-primary" />
+        ข้อมูลร้าน
+      </div>
+      {editing ? (
+        <form onSubmit={submit} className="space-y-3 pt-1">
+          <input
+            autoFocus
+            value={shopName}
+            onChange={(e) => setShopName(e.target.value)}
+            placeholder="ชื่อร้าน"
+            className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={busy}
+              className="h-11 flex-1 rounded-xl bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {busy ? "…" : "บันทึก"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="h-11 rounded-xl border border-border px-4 text-sm font-medium"
+            >
+              ยกเลิก
+            </button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <Row label="ชื่อร้าน" value={settings?.shop_name || "—"} />
+          <Row label="ที่อยู่" value={settings?.shop_address || "—"} />
+          <Row label="โทรศัพท์" value={settings?.shop_phone || "—"} />
+          <Row label="เลข PromptPay" value={settings?.promptpay_id || "—"} />
+          <button
+            onClick={startEdit}
+            disabled={!settings}
+            className="mt-2 text-xs font-semibold text-primary disabled:opacity-50"
+          >
+            แก้ไขชื่อร้าน
+          </button>
+          <p className="pt-2 text-xs text-muted-foreground">
+            แก้ไขข้อมูลร้านส่วนอื่นได้ที่แอป Mother
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
 function CategoryManageSection() {
   const qc = useQueryClient();
   const list = useQuery({
