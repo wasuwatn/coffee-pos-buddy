@@ -162,7 +162,9 @@ export function useCatalog() {
           hub.list<ShopSettings>("settings"),
         ]);
       const products = menuname.filter((m) => m.status === "Active");
-      const categories = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
+      const categories = Array.from(new Set(products.map((p) => p.category).filter(Boolean))).sort(
+        (a, b) => a.localeCompare(b, "th"),
+      );
       return {
         products,
         categories,
